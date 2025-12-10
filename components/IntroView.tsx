@@ -137,35 +137,35 @@ const IntroView: React.FC<IntroViewProps> = ({
           {[
             { 
               role: ResearcherRole.PHD_STUDENT, 
-              title: "The PhD Student",
-              desc: "Challenge: Balancing the need for mentor guidance with the development of your own independent scientific voice and standards.",
+              title: "PhD Student",
+              desc: "Challenge: Balancing the need for supervisor guidance with the development of your own independent scientific voice and standards.",
               icon: "🎓",
               color: "hover:border-emerald-400 hover:shadow-emerald-100"
             },
             { 
               role: ResearcherRole.POSTDOC, 
-              title: "The Postdoc",
+              title: "Postdoc",
               desc: "Challenge: Producing high-impact work to secure a permanent career while adhering to rigorous methodological standards.",
               icon: "🔬",
               color: "hover:border-blue-400 hover:shadow-blue-100"
             },
             { 
               role: ResearcherRole.LAB_TECH, 
-              title: "The Lab Technician",
+              title: "Lab Technician",
               desc: "Challenge: Ensuring data accuracy and equipment reliability while navigating hierarchical instructions that may conflict with best practices.",
               icon: "🧪",
               color: "hover:border-violet-400 hover:shadow-violet-100"
             },
             { 
               role: ResearcherRole.PRINCIPAL_INVESTIGATOR, 
-              title: "The Principal Investigator",
+              title: "Principal Investigator",
               desc: "Challenge: Sustaining the lab's funding and reputation while fostering a culture of honesty and supporting team wellbeing.",
               icon: "🏛️",
               color: "hover:border-amber-400 hover:shadow-amber-100"
             },
             { 
               role: ResearcherRole.FULL_PROFESSOR, 
-              title: "The Full Professor",
+              title: "Full Professor",
               desc: "Challenge: Managing a sprawling research empire and complex grants while maintaining oversight to prevent misconduct in a large team.",
               icon: "🌍",
               color: "hover:border-indigo-400 hover:shadow-indigo-100"

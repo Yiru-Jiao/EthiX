@@ -12,7 +12,7 @@ interface StatsPanelProps {
   turn: number;
   totalTurns: number;
   role: string;
-  mentorMessage?: string;
+  navigatorMessage?: string;
 }
 
 const RadarChart: React.FC<{ 
@@ -132,7 +132,7 @@ const RadarChart: React.FC<{
   );
 };
 
-const StatsPanel: React.FC<StatsPanelProps> = ({ stats, turn, totalTurns, role, mentorMessage }) => {
+const StatsPanel: React.FC<StatsPanelProps> = ({ stats, turn, totalTurns, role, navigatorMessage }) => {
   const chartData = [
     { label: 'Integrity', value: stats.integrity, color: '#10b981' }, // Emerald
     { label: 'Career', value: stats.career, color: '#3b82f6' }, // Blue
@@ -141,7 +141,7 @@ const StatsPanel: React.FC<StatsPanelProps> = ({ stats, turn, totalTurns, role, 
     { label: 'Wellbeing', value: stats.wellbeing, color: '#ec4899' }, // Pink
   ];
 
-  // Determine Tip Style based on stats logic, but use provided text
+  // Determine Tip Style based on stats logic
   const tipStyleType = useMemo(() => {
     const values = Object.values(stats) as number[];
     const minVal = Math.min(...values);
@@ -158,7 +158,7 @@ const StatsPanel: React.FC<StatsPanelProps> = ({ stats, turn, totalTurns, role, 
       border: 'border-indigo-100',
       text: 'text-indigo-800',
       title: 'text-indigo-900',
-      titleText: 'Mentor Tip',
+      titleText: 'Navigator Tip',
       icon: (
         <svg className="w-4 h-4 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -208,12 +208,10 @@ const StatsPanel: React.FC<StatsPanelProps> = ({ stats, turn, totalTurns, role, 
       <div className={`mt-4 p-4 rounded-lg border ${currentStyle.bg} ${currentStyle.border} transition-colors duration-500`}>
         <h4 className={`flex items-center gap-2 text-xs font-bold uppercase mb-2 ${currentStyle.title}`}>
            {currentStyle.icon}
-           {/* If message is provided, we can either use generic title or try to rely on LLM. 
-               We will use generic titles based on severity for UI consistency. */}
            {currentStyle.titleText}
         </h4>
         <p className={`text-xs leading-relaxed ${currentStyle.text}`}>
-           {mentorMessage || "Analyzing your research profile..."}
+           {navigatorMessage || "Analyzing your research profile..."}
         </p>
       </div>
     </div>

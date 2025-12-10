@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 interface WelcomeViewProps {
@@ -7,7 +6,7 @@ interface WelcomeViewProps {
 
 const WelcomeView: React.FC<WelcomeViewProps> = ({ onEnter }) => {
   return (
-    <div className="relative min-h-[calc(100vh-4rem)] flex flex-col items-center justify-center overflow-hidden bg-slate-50">
+    <div className="relative w-full flex-grow flex flex-col items-center justify-center overflow-hidden bg-slate-50 py-12">
       
       {/* Animated Background Elements */}
       <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
@@ -71,10 +70,6 @@ const WelcomeView: React.FC<WelcomeViewProps> = ({ onEnter }) => {
             </svg>
           </span>
         </button>
-
-        <p className="mt-8 text-xs font-bold text-slate-400 uppercase tracking-widest opacity-60">
-          Powered by Gemini 2.5
-        </p>
       </div>
     </div>
   );

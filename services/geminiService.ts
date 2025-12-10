@@ -11,7 +11,7 @@ const scenarioSchema: Schema = {
     title: { type: Type.STRING, description: "A short, catchy title for the ethical dilemma." },
     description: { type: Type.STRING, description: "The detailed narrative of the situation. It must be subtle, not obvious misconduct." },
     context: { type: Type.STRING, description: "Brief context about the specific research environment or pressure. Be creative (e.g., 'Late night in the lab', 'Conference in Madrid', 'Zoom call with funders')." },
-    mentorSpeaking: { type: Type.STRING, description: "A brief, 1-sentence tip from a mentor in the target language. If turn=1, explain the radar chart tracks balance. If stats are low, warn them." },
+    navigatorSpeaking: { type: Type.STRING, description: "A brief, 1-sentence tip from a neutral navigator/guide in the target language. If turn=1, explain the radar chart tracks balance. If stats are low, warn them." },
     choices: {
       type: Type.ARRAY,
       items: {
@@ -24,7 +24,7 @@ const scenarioSchema: Schema = {
       }
     }
   },
-  required: ["title", "description", "context", "choices", "mentorSpeaking"]
+  required: ["title", "description", "context", "choices", "navigatorSpeaking"]
 };
 
 const feedbackSchema: Schema = {
@@ -43,12 +43,12 @@ const feedbackSchema: Schema = {
     longTermImplication: { type: Type.STRING, description: "Potential future consequences (positive or negative)." },
     actionableStrategy: { type: Type.STRING, description: "Advice on how to handle this situation professionally." },
     openSciencePrinciple: { type: Type.STRING, description: "Which Open Science principle is relevant here (e.g. Transparency, Reproducibility)." },
-    mentorSpeaking: { type: Type.STRING, description: "A brief, 1-sentence reaction from a mentor in the target language about the new balance of the researcher." }
+    navigatorSpeaking: { type: Type.STRING, description: "A brief, 1-sentence reaction from the navigator in the target language about the new balance of the researcher." }
   },
   required: [
     "outcomeTitle", "outcomeDescription", 
     "integrityScoreChange", "careerScoreChange", "rigorScoreChange", "collaborationScoreChange", "wellbeingScoreChange",
-    "longTermImplication", "actionableStrategy", "openSciencePrinciple", "mentorSpeaking"
+    "longTermImplication", "actionableStrategy", "openSciencePrinciple", "navigatorSpeaking"
   ]
 };
 
@@ -116,12 +116,12 @@ export const generateScenario = async (
     
     Specific Topic Guidance: ${specificGuidance}
 
-    IMPORTANT: Provide ALL content (including 'mentorSpeaking') in ${language}.
+    IMPORTANT: Provide ALL content (including 'navigatorSpeaking') in ${language}.
 
     The scenario should focus on "grey areas" and subtle pressures in academia.
     Do not make it obvious fraud. Make it a difficult social or professional pressure situation.
     
-    For 'mentorSpeaking':
+    For 'navigatorSpeaking':
     - If Turn 1: Briefly explain that the chart shows their professional balance.
     - If any stat < 40: Give a critical warning about that specific risk.
     - Otherwise: Give a general tip about trade-offs related to the current scenario topic.
@@ -157,7 +157,7 @@ export const generateScenario = async (
       description: "We couldn't reach the AI simulation engine. Please check your connection or API key.",
       context: "System Error",
       choices: [{ id: "retry", text: "Retry Connection" }],
-      mentorSpeaking: "System is offline."
+      navigatorSpeaking: "System is offline."
     };
   }
 };
@@ -187,7 +187,7 @@ export const evaluateDecision = async (
 
     Assign score changes (-10 to +10) for EACH dimension.
     
-    For 'mentorSpeaking':
+    For 'navigatorSpeaking':
     - Provide a short, direct reaction to how this choice affects their stats/balance.
     
     Provide a specific actionable strategy (e.g. "Use reference management software", "Always quote verbatim text").
@@ -221,7 +221,7 @@ export const evaluateDecision = async (
       longTermImplication: "Unknown",
       actionableStrategy: "Check connection.",
       openSciencePrinciple: "N/A",
-      mentorSpeaking: "Error evaluating."
+      navigatorSpeaking: "Error evaluating."
     };
   }
 };

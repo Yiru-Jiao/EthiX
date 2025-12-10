@@ -28,7 +28,7 @@ export interface Scenario {
   description: string;
   context: string; // The "open science" context or background
   choices: ScenarioChoice[];
-  mentorSpeaking: string; // Dynamic tip in selected language
+  navigatorSpeaking: string; // Dynamic tip in selected language (formerly mentorSpeaking)
 }
 
 export interface Feedback {
@@ -44,7 +44,7 @@ export interface Feedback {
   longTermImplication: string;
   actionableStrategy: string; // What should have been done or what to do next
   openSciencePrinciple: string; // Connection to open science
-  mentorSpeaking: string; // Dynamic reaction in selected language
+  navigatorSpeaking: string; // Dynamic reaction in selected language (formerly mentorSpeaking)
 }
 
 export interface GameState {

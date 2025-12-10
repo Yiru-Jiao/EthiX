@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Header from './components/Header';
+import Footer from './components/Footer';
 import StatsPanel from './components/StatsPanel';
 import IntroView from './components/IntroView';
 import TopicSelectionView from './components/TopicSelectionView';
@@ -328,7 +329,7 @@ const App: React.FC = () => {
         onLogoClick={handleLogoClick}
       />
       
-      <main className="flex-grow max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-grow max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 flex flex-col">
         {error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg">
             Error: {error}
@@ -358,7 +359,7 @@ const App: React.FC = () => {
         )}
 
         {phase === GamePhase.LOADING && (
-          <div className="flex flex-col items-center justify-center h-96">
+          <div className="flex flex-col items-center justify-center flex-grow h-96">
             <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-indigo-600 mb-4"></div>
             <p className="text-lg font-medium text-slate-600">
                {nextScenarioBuffer ? "Finalizing simulation..." : "Creating unique scenario..."}
@@ -392,7 +393,7 @@ const App: React.FC = () => {
                 turn={turn}
                 totalTurns={currentRoundMaxTurns}
                 role={role}
-                mentorMessage={phase === GamePhase.SCENARIO ? currentScenario?.mentorSpeaking : currentFeedback?.mentorSpeaking}
+                navigatorMessage={phase === GamePhase.SCENARIO ? currentScenario?.navigatorSpeaking : currentFeedback?.navigatorSpeaking}
               />
             </div>
           </div>
@@ -429,7 +430,7 @@ const App: React.FC = () => {
                 </div>
 
                 <div className="bg-indigo-50 p-6 rounded-xl border border-indigo-100 mb-8 text-left max-w-2xl mx-auto">
-                  <h3 className="font-bold text-indigo-900 mb-2">Mentor's Note</h3>
+                  <h3 className="font-bold text-indigo-900 mb-2">Navigator's Insight</h3>
                   <p className="text-indigo-800 text-sm leading-relaxed">
                     {integrityScore > 80 && rigorScore > 70
                      ? "Your dedication to Open Science is commendable. You've built a strong foundation of trust and quality. The road ahead may bring more complex challenges to your growing reputation." 
@@ -484,6 +485,8 @@ const App: React.FC = () => {
           </div>
         )}
       </main>
+
+      <Footer />
 
       {showExitModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
