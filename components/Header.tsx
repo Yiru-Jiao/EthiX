@@ -61,14 +61,6 @@ const Header: React.FC<HeaderProps> = ({ gameActive, onExit, onLogoClick, onOpen
               Open Science
             </a>
             <a 
-              href="https://publicationethics.org/guidance" 
-              target="_blank" 
-              rel="noopener noreferrer" 
-              className="text-sm font-bold text-slate-500 hover:text-indigo-600 transition-colors"
-            >
-              Resources
-            </a>
-            <a 
               href="https://github.com/Yiru-Jiao/EthiX" 
               target="_blank" 
               rel="noopener noreferrer" 
@@ -157,18 +149,6 @@ const Header: React.FC<HeaderProps> = ({ gameActive, onExit, onLogoClick, onOpen
               onClick={() => setMobileMenuOpen(false)}
             >
               Open Science
-              <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-            </a>
-            <a 
-              href="https://publicationethics.org/guidance" 
-              target="_blank" 
-              rel="noopener noreferrer" 
-              className="text-lg font-bold text-slate-600 hover:text-indigo-600 transition-colors flex items-center justify-between border-b border-slate-100 pb-2"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Resources
               <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
               </svg>
