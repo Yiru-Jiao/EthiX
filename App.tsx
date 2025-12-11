@@ -9,13 +9,13 @@ import ScenarioView from './components/ScenarioView';
 import FeedbackView from './components/FeedbackView';
 import WelcomeView from './components/WelcomeView';
 import AdvisorView from './components/AdvisorView';
+import RoundLoadingView from './components/RoundLoadingView';
 import { GamePhase, ResearcherRole, Scenario, Feedback, ScenarioChoice } from './types';
-import { generateScenario, generateScenarioBatch, BatchRequest } from './services/geminiService';
+import { generateScenarioBatch, BatchRequest } from './services/geminiService';
 import { ScenarioLibrary } from './services/scenarioLibrary';
 
 const TURNS_PER_ROUND = 5;
 const STORAGE_KEY = 'integrity_quest_save_v2'; 
-const PREFETCH_LOOKAHEAD = 3; // Aggressively fetch next 3 turns
 
 const App: React.FC = () => {
   const [phase, setPhase] = useState<GamePhase>(GamePhase.WELCOME);
@@ -38,12 +38,10 @@ const App: React.FC = () => {
   
   // --- BUFFER ---
   const [scenarioBuffer, setScenarioBuffer] = useState<Record<number, Scenario>>({});
-  // Track which turns are currently being fetched
-  const fetchingTurnsRef = useRef<Set<number>>(new Set());
-  // Track seen scenario titles to avoid repetition in current session
   const seenTitlesRef = useRef<Set<string>>(new Set<string>());
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false); // General UI loading (evaluating choices)
+  const [loadingRoundNumber, setLoadingRoundNumber] = useState<number | null>(null); // Specific Round Generation Loading state
   const [error, setError] = useState<string | null>(null);
   
   const [hasSavedGame, setHasSavedGame] = useState(false);
@@ -56,6 +54,12 @@ const App: React.FC = () => {
     }
     ScenarioLibrary.ensureSeeds();
   }, []);
+
+  // --- SCROLL HANDLING ---
+  // Automatically scroll to top on phase/turn changes to guide user focus to new content
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [phase, loadingRoundNumber, turn]);
 
   const getStatsObject = useCallback(() => ({
     integrity: integrityScore,
@@ -71,175 +75,148 @@ const App: React.FC = () => {
   }, []);
 
   const saveProgress = useCallback(() => {
-    // Don't save if in temporary phases like Advisor or Welcome
     if (phase === GamePhase.ADVISOR || phase === GamePhase.WELCOME) return;
     
     const gameState = {
       phase, role, turn, language, selectedTopics,
       stats: getStatsObject(),
       currentScenario, currentFeedback,
+      pastTitles: Array.from(seenTitlesRef.current)
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(gameState));
     setHasSavedGame(true);
   }, [phase, role, turn, language, selectedTopics, getStatsObject, currentScenario, currentFeedback]);
 
-  // --- SMART BATCH PRE-FETCHING ---
-  const checkAndPrefetch = useCallback(async (currentTurn: number, topics: string[]) => {
-    const currentRoundEnd = Math.ceil(currentTurn / TURNS_PER_ROUND) * TURNS_PER_ROUND;
+
+  // --- BATCH ROUND GENERATION ---
+  
+  const prepareRound = useCallback(async (startTurn: number, topics: string[]) => {
+    const endTurn = startTurn + TURNS_PER_ROUND - 1;
     const batchRequests: BatchRequest[] = [];
-    const neededTurns: number[] = [];
     const seenArray = Array.from(seenTitlesRef.current) as string[];
 
-    // Identify needed turns in the lookahead window
-    for (let i = 1; i <= PREFETCH_LOOKAHEAD; i++) {
-      const targetTurn = currentTurn + i;
-      
-      // Stop if we cross into the next round (wait for game over screen)
-      if (targetTurn > currentRoundEnd) break;
+    console.log(`[Round] Preparing Round: Turns ${startTurn} to ${endTurn}`);
 
-      // Skip if already buffered or currently fetching
-      if (scenarioBuffer[targetTurn] || fetchingTurnsRef.current.has(targetTurn)) continue;
+    // Check Library and Buffer for all turns in the round
+    for (let t = startTurn; t <= endTurn; t++) {
+      if (scenarioBuffer[t]) continue; // Already in buffer
 
-      // Check library first with exclusion
-      const topic = getTopicForTurn(targetTurn, topics);
+      const topic = getTopicForTurn(t, topics);
       const cached = ScenarioLibrary.getRandom(role, topic, language, seenArray);
       
       if (cached) {
-        console.log(`[Buffer] Loaded Turn ${targetTurn} from Library.`);
-        setScenarioBuffer(prev => ({ ...prev, [targetTurn]: cached }));
-        // Add to seen so we don't accidentally fetch it again if logic runs weirdly
-        // (Though we don't officially 'see' it until it's presented, adding to cache prevents dupes)
+         setScenarioBuffer(prev => ({ ...prev, [t]: cached }));
       } else {
-        // Need to fetch via API
-        neededTurns.push(targetTurn);
-        batchRequests.push({
-          role,
-          turn: targetTurn,
-          topic,
-          currentStats: getStatsObject() // Use current stats as approximation
-        });
+         batchRequests.push({
+           role,
+           turn: t,
+           topic,
+           currentStats: getStatsObject()
+         });
       }
     }
 
     if (batchRequests.length === 0) return;
 
-    // Lock turns
-    neededTurns.forEach(t => fetchingTurnsRef.current.add(t));
-    
     try {
-      console.log(`[Buffer] Fetching batch for Turns: ${neededTurns.join(', ')}`);
-      // Use batch API for efficiency, passing seen titles to avoid
+      // Execute Batch Request
+      // We do not set loading state here; it is controlled by the caller (proceedToTurn) to prevent UI flicker
+      // Artificial delay for better UX pacing if it's too fast
+      await new Promise(r => setTimeout(r, 1500)); 
+      
       const results = await generateScenarioBatch(batchRequests, language, seenArray);
       
-      // Update buffer and library
       setScenarioBuffer(prev => ({ ...prev, ...results }));
+      
+      // Save to library
       Object.entries(results).forEach(([t, scen]) => {
-         // Find which topic corresponded to this turn
          const req = batchRequests.find(r => r.turn === Number(t));
          if (req) {
             ScenarioLibrary.add(role, req.topic, scen, language);
          }
       });
-      
     } catch (e) {
-      console.warn("Batch prefetch failed", e);
-    } finally {
-      // Unlock turns
-      neededTurns.forEach(t => fetchingTurnsRef.current.delete(t));
+      console.error("Round generation failed", e);
+      setError("Connection interrupted. Please try again.");
     }
-
   }, [scenarioBuffer, role, language, getTopicForTurn, getStatsObject]);
-
-  // Trigger prefetch on appropriate phases
-  useEffect(() => {
-    // Also run during LOADING to get ahead
-    if (phase === GamePhase.SCENARIO || phase === GamePhase.FEEDBACK || phase === GamePhase.LOADING) {
-       // Small delay to ensure state settles, but fast enough to start parallel reqs
-       const timer = setTimeout(() => {
-          checkAndPrefetch(turn, selectedTopics);
-       }, 100);
-       return () => clearTimeout(timer);
-    }
-  }, [turn, phase, checkAndPrefetch, selectedTopics]);
 
 
   // --- MAIN FLOW ---
 
   const proceedToTurn = async (targetTurn: number, topics: string[] = selectedTopics) => {
-    setLoading(true);
-    setTurn(targetTurn);
-    setPhase(GamePhase.LOADING);
-    
-    // 1. Check Buffer (Instant)
+    // 1. Check if we already have the content
     if (scenarioBuffer[targetTurn]) {
         console.log(`[Flow] Instant transition to Turn ${targetTurn}`);
+        setLoading(true); // Short UI transition
+        
         const s = scenarioBuffer[targetTurn];
         setCurrentScenario(s);
         seenTitlesRef.current.add(s.title);
         
-        // Clear used buffer entry
+        // Cleanup buffer to free memory
         setScenarioBuffer(prev => {
             const next = { ...prev };
             delete next[targetTurn];
             return next;
         });
-        
-        setLoading(false);
+
+        setTurn(targetTurn);
         setPhase(GamePhase.SCENARIO);
+        setLoading(false);
         return;
     }
 
-    // 2. Urgent Fetch (Buffer Miss)
-    console.log(`[Flow] Buffer miss for Turn ${targetTurn}. Fetching urgent...`);
-    try {
-        const topic = getTopicForTurn(targetTurn, topics);
-        const seenArray = Array.from(seenTitlesRef.current) as string[];
+    // 2. Buffer Miss -> We need to generate the round containing this turn.
+    const roundStart = Math.floor((targetTurn - 1) / TURNS_PER_ROUND) * TURNS_PER_ROUND + 1;
+    const targetRoundNumber = Math.floor((targetTurn - 1) / TURNS_PER_ROUND) + 1;
 
-        // Double check library with exclusions just in case
-        const cached = ScenarioLibrary.getRandom(role, topic, language, seenArray);
-        if (cached) {
-             setCurrentScenario(cached);
-             seenTitlesRef.current.add(cached.title);
-        } else {
-             // Fallback to single generation for the urgent/blocking request
-             // Pass seen titles to avoid duplicates
-             const scenario = await generateScenario(role, targetTurn, language, getStatsObject(), topic, seenArray);
-             setCurrentScenario(scenario);
-             seenTitlesRef.current.add(scenario.title);
-             ScenarioLibrary.add(role, topic, scenario, language);
-        }
-        setPhase(GamePhase.SCENARIO);
-    } catch (e) {
-        setError("Connection failed. Please check your internet.");
-        setPhase(GamePhase.INTRO);
-    } finally {
-        setLoading(false);
-    }
+    setLoadingRoundNumber(targetRoundNumber); // Trigger Loading View
+
+    await prepareRound(roundStart, topics);
+    
+    // 3. State update to trigger the Effect below
+    // We update 'turn' now. The Effect will see (turn matches buffer) and switch phase.
+    setTurn(targetTurn);
   };
+  
+  // Watcher to transition from Round Generation to Gameplay
+  useEffect(() => {
+    if (loadingRoundNumber !== null && scenarioBuffer[turn]) {
+       const s = scenarioBuffer[turn];
+       setCurrentScenario(s);
+       seenTitlesRef.current.add(s.title);
+       
+       // Cleanup buffer
+       setScenarioBuffer(prev => {
+          const next = { ...prev };
+          delete next[turn];
+          return next;
+       });
+       
+       setLoadingRoundNumber(null); // Hide Loading View
+       setPhase(GamePhase.SCENARIO);
+    }
+  }, [scenarioBuffer, turn, loadingRoundNumber]);
+
 
   const startGame = async (topics: string[]) => {
     setIntegrityScore(50); setCareerScore(50); setRigorScore(50); 
     setCollaborationScore(50); setWellbeingScore(50);
     setError(null);
     setScenarioBuffer({});
-    fetchingTurnsRef.current.clear();
+    seenTitlesRef.current.clear(); // Reset diversity tracking for new game
+    
     localStorage.removeItem(STORAGE_KEY);
     setHasSavedGame(false);
     
-    // Start urgent fetch for Turn 1
-    const p1 = proceedToTurn(1, topics);
-    
-    // Concurrently start pre-fetching Turn 2, 3, 4 to reduce future latency
-    // We pass '1' as current turn so it looks ahead to 2, 3, 4
-    checkAndPrefetch(1, topics);
-
-    await p1;
+    setTurn(1);
+    await proceedToTurn(1, topics);
   };
 
   const handleChoice = (choice: ScenarioChoice) => {
     if (!currentScenario) return;
     
-    // Instant Outcome Application
     const fb = choice.outcome;
     const clamp = (val: number) => Math.min(100, Math.max(0, val));
     
@@ -254,8 +231,9 @@ const App: React.FC = () => {
   };
 
   const handleNextTurn = async () => {
+    // If we just finished the last turn of a round (e.g. 5, 10, 15)
     if (turn % TURNS_PER_ROUND === 0) {
-      setPhase(GamePhase.GAME_OVER);
+      setPhase(GamePhase.GAME_OVER); // Show Round Summary
     } else {
       await proceedToTurn(turn + 1);
     }
@@ -290,8 +268,12 @@ const App: React.FC = () => {
           setWellbeingScore(s.stats.wellbeing);
           setCurrentScenario(s.currentScenario); setCurrentFeedback(s.currentFeedback);
           
-          // Restore seen titles from loaded scenario if possible, or just add current
-          if (s.currentScenario) seenTitlesRef.current.add(s.currentScenario.title);
+          // Restore seen titles to maintain diversity constraints
+          if (s.pastTitles && Array.isArray(s.pastTitles)) {
+             seenTitlesRef.current = new Set(s.pastTitles);
+          } else if (s.currentScenario) {
+             seenTitlesRef.current.add(s.currentScenario.title);
+          }
           
           setPhase(s.phase);
       }
@@ -303,9 +285,7 @@ const App: React.FC = () => {
     setShowExitModal(false); setPhase(GamePhase.INTRO);
   };
 
-  // --- ADVISOR PORTAL LOGIC ---
   const handleOpenAdvisor = () => {
-    // Save current phase so we can return to it (e.g., from Scenario to Advisor back to Scenario)
     if (phase !== GamePhase.ADVISOR) {
       setPreviousPhase(phase);
       setPhase(GamePhase.ADVISOR);
@@ -317,7 +297,7 @@ const App: React.FC = () => {
   };
 
   const currentRoundMaxTurns = Math.ceil(turn / TURNS_PER_ROUND) * TURNS_PER_ROUND;
-
+  
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 font-sans text-slate-900 relative">
       <Header 
@@ -352,14 +332,20 @@ const App: React.FC = () => {
           <TopicSelectionView role={role} onConfirm={handleTopicsConfirmed} onBack={handleBackToRole} />
         )}
 
-        {phase === GamePhase.LOADING && (
+        {/* LOADING STATES */}
+        {loadingRoundNumber !== null && (
+           <RoundLoadingView role={role} roundNumber={loadingRoundNumber} topics={selectedTopics} />
+        )}
+
+        {loadingRoundNumber === null && phase === GamePhase.LOADING && (
           <div className="flex flex-col items-center justify-center flex-grow h-96">
             <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-indigo-600 mb-4"></div>
-            <p className="text-lg font-medium text-slate-600">Simulating scenario...</p>
+            <p className="text-lg font-medium text-slate-600">Loading scenario...</p>
           </div>
         )}
 
-        {(phase === GamePhase.SCENARIO || phase === GamePhase.FEEDBACK) && (
+        {/* GAMEPLAY */}
+        {loadingRoundNumber === null && (phase === GamePhase.SCENARIO || phase === GamePhase.FEEDBACK) && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2">
               {phase === GamePhase.SCENARIO && currentScenario && (
@@ -379,7 +365,7 @@ const App: React.FC = () => {
         )}
 
         {phase === GamePhase.GAME_OVER && (
-          <div className="max-w-4xl mx-auto text-center py-8">
+          <div className="max-w-4xl mx-auto text-center py-8 animate-fade-in">
              <div className="bg-white rounded-2xl shadow-xl p-8 border border-slate-200">
                 <div className="mb-6">
                     <span className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-bold uppercase tracking-wide">Milestone Reached</span>
@@ -398,7 +384,7 @@ const App: React.FC = () => {
                 <div className="bg-indigo-50 p-6 rounded-xl border border-indigo-100 mb-8 text-left max-w-2xl mx-auto">
                   <h3 className="font-bold text-indigo-900 mb-2">Navigator's Insight</h3>
                   <p className="text-indigo-800 text-sm leading-relaxed">
-                    {integrityScore > 80 && rigorScore > 70 ? "Excellent dedication to Open Science. You've built strong trust." : integrityScore > 50 ? "You are maintaining a delicate balance. Watch out for shortcuts." : "Your strategy prioritizes short-term gains over stability. Consider refocusing on Integrity."}
+                    {integrityScore > 80 && rigorScore > 70 ? "Excellent dedication to Open Science. You've built strong trust within the community." : integrityScore > 50 ? "You are maintaining a delicate balance. Watch out for shortcuts that might compromise your long-term reputation." : "Your strategy prioritizes short-term gains over stability. Consider refocusing on Integrity to avoid future crises."}
                   </p>
                 </div>
                 {/* Buttons */}

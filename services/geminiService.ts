@@ -141,7 +141,7 @@ export const generateScenario = async (
   const { pressure, dilemma } = getRandomConstraint();
   
   const avoidInstruction = avoidTitles.length > 0 
-    ? `IMPORTANT: Do NOT generate scenarios with these titles or similar storylines: ${avoidTitles.slice(-15).join(', ')}.`
+    ? `IMPORTANT: Do NOT generate scenarios with these titles or similar storylines: ${avoidTitles.slice(-25).join(', ')}.`
     : '';
 
   const prompt = `
@@ -204,7 +204,9 @@ export const generateScenarioBatch = async (
   if (requests.length === 0) return {};
 
   const avoidInstruction = avoidTitles.length > 0 
-    ? `GLOBAL NEGATIVE CONSTRAINT: Do NOT repeat titles or themes from: ${avoidTitles.slice(-15).join(', ')}`
+    ? `GLOBAL NEGATIVE CONSTRAINT (STRICT): 
+       - Do NOT use ANY of the following titles (or their translated equivalents): ${avoidTitles.slice(-30).join(', ')}.
+       - Do NOT reuse the same specific storyline/dilemma if it appears in the list.`
     : '';
 
   const prompt = `
@@ -228,11 +230,11 @@ export const generateScenarioBatch = async (
     }).join('\n')}
 
     GLOBAL RULES:
-    - Each scenario must be unique and specific to its Topic.
-    - Ensure scenarios in this batch are DISTINCT from each other.
-    - Treat each as an episode.
-    - Provide 3 choices per scenario with calculated outcomes.
-    - Keep concise.
+    1. EACH scenario in this batch must be UNIQUE. 
+    2. Do NOT repeat the same "Dilemma Type" twice within this batch.
+    3. Scenarios must follow the user's career progression (Turn number).
+    4. Provide 3 choices per scenario with calculated outcomes.
+    5. Output JSON only.
   `;
 
   try {

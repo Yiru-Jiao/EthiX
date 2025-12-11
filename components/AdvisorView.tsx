@@ -44,12 +44,19 @@ const AdvisorView: React.FC<AdvisorViewProps> = ({ onBack, role: initialRole, la
   const sessionRef = useRef<AdvisorSession | null>(null);
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
+  // SCROLL LOGIC
   useEffect(() => {
-    // Scroll to bottom when chat history changes
-    if (chatBottomRef.current) {
+    // 1. When a new analysis result arrives (and chat is empty), focus on the Analysis at the top.
+    // This allows the user to read the new static content ("Analysis" and "Strategy") immediately.
+    if (result && chatHistory.length === 0) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } 
+    // 2. For ongoing conversation, scroll to the latest message at the bottom.
+    // This tracks the "dynamic element" of the chat bubbling up.
+    else if (chatHistory.length > 0 && chatBottomRef.current) {
       chatBottomRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [chatHistory, result]);
+  }, [result, chatHistory]);
 
   const handleAnalyze = async () => {
     if (!situation.trim()) return;
