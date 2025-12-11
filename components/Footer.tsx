@@ -15,12 +15,12 @@ const Footer: React.FC = () => {
         </div>
 
         <div className="max-w-2xl bg-white/50 rounded-lg p-4 border border-slate-100">
-          <p className="text-xs text-slate-600 leading-relaxed">
+          <p className="text-xs text-slate-600 leading-relaxed mb-3">
             <span className="font-bold text-indigo-700">Open for Educational & Scientific Use:</span> This application and its content are available for reuse, adaptation, and further development for non-profit educational and scientific purposes, conditioned on providing proper reference to the original author.
           </p>
           <div className="w-16 h-px bg-slate-200 mx-auto my-3"></div>
-          <p className="text-xs text-slate-500 leading-relaxed">
-            <span className="font-bold text-red-600">Commercial Use Prohibited:</span> Commercial use, sale, or distribution of this application or its derivatives is <span className="underline decoration-red-200">strictly prohibited</span> without explicit written permission from the author.
+          <p className="text-xs text-slate-600 leading-relaxed">
+            <span className="font-bold text-slate-900">Commercial Use:</span> Commercial use is <span className="underline decoration-indigo-200">permitted</span>, provided that proper reference is given and communication is established with the author.
           </p>
         </div>
       </div>

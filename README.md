@@ -60,7 +60,7 @@ If interested, you can also copy the app and develop further based on it.
 
 This project is licensed under a **Custom Educational & Scientific License**.
 
-*   **Allowed**: You are encouraged to use, reuse, adapt, and further develop this application for **non-profit educational and scientific purposes**, provided that **proper reference and attribution** is given to the original author.
-*   **Prohibited**: Commercial use, sale, licensing, or distribution of this application or its derivatives is **strictly prohibited** without explicit written permission from the author.
+*   **Educational & Scientific Use**: You are encouraged to use, reuse, adapt, and further develop this application for **non-profit educational and scientific purposes**, provided that **proper reference and attribution** is given to the original author.
+*   **Commercial Use**: Commercial use is **permitted**, provided that **proper reference** is given and **communication** is established with the author.
 
 See the [LICENSE](LICENSE) file for full details.
