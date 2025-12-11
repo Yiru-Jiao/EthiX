@@ -10,31 +10,31 @@ const MODEL_NAME = 'gemini-2.5-flash';
 const scenarioSchema: Schema = {
   type: Type.OBJECT,
   properties: {
-    title: { type: Type.STRING, description: "A short, catchy title for the ethical dilemma." },
-    description: { type: Type.STRING, description: "The detailed narrative of the situation. It must be subtle, not obvious misconduct." },
-    context: { type: Type.STRING, description: "Brief context regarding the specific research environment or pressure." },
-    navigatorSpeaking: { type: Type.STRING, description: "A brief, 1-sentence tip from a neutral navigator/guide in the target language. Warn if stats are low." },
+    title: { type: Type.STRING, description: "Short, punchy title." },
+    description: { type: Type.STRING, description: "Concise narrative (max 3 sentences)." },
+    context: { type: Type.STRING, description: "Very brief context (1 sentence)." },
+    navigatorSpeaking: { type: Type.STRING, description: "Brief 1-sentence tip." },
     choices: {
       type: Type.ARRAY,
       items: {
         type: Type.OBJECT,
         properties: {
           id: { type: Type.STRING },
-          text: { type: Type.STRING, description: "The action the user can take." },
+          text: { type: Type.STRING, description: "Action text." },
           outcome: {
             type: Type.OBJECT,
             properties: {
-              outcomeTitle: { type: Type.STRING, description: "Short title of what happened." },
-              outcomeDescription: { type: Type.STRING, description: "Narrative description of the immediate result." },
-              integrityScoreChange: { type: Type.INTEGER, description: "Impact on Research Integrity (-10 to +10)." },
-              careerScoreChange: { type: Type.INTEGER, description: "Impact on Career Standing (-10 to +10)." },
-              rigorScoreChange: { type: Type.INTEGER, description: "Impact on Scientific Rigor/Quality (-10 to +10)." },
-              collaborationScoreChange: { type: Type.INTEGER, description: "Impact on Collaboration/Trust (-10 to +10)." },
-              wellbeingScoreChange: { type: Type.INTEGER, description: "Impact on Wellbeing/Mental Health (-10 to +10)." },
-              longTermImplication: { type: Type.STRING, description: "Potential future consequences (positive or negative)." },
-              actionableStrategy: { type: Type.STRING, description: "Advice on how to handle this situation professionally." },
-              openSciencePrinciple: { type: Type.STRING, description: "Which Open Science principle is relevant here." },
-              navigatorSpeaking: { type: Type.STRING, description: "A brief, 1-sentence reaction from the navigator about the result." }
+              outcomeTitle: { type: Type.STRING, description: "Short result title." },
+              outcomeDescription: { type: Type.STRING, description: "Result description." },
+              integrityScoreChange: { type: Type.INTEGER },
+              careerScoreChange: { type: Type.INTEGER },
+              rigorScoreChange: { type: Type.INTEGER },
+              collaborationScoreChange: { type: Type.INTEGER },
+              wellbeingScoreChange: { type: Type.INTEGER },
+              longTermImplication: { type: Type.STRING },
+              actionableStrategy: { type: Type.STRING },
+              openSciencePrinciple: { type: Type.STRING },
+              navigatorSpeaking: { type: Type.STRING }
             },
             required: [
               "outcomeTitle", "outcomeDescription", 
@@ -50,27 +50,57 @@ const scenarioSchema: Schema = {
   required: ["title", "description", "context", "choices", "navigatorSpeaking"]
 };
 
+// Batch schema wrapper
+const batchSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    scenarios: {
+      type: Type.ARRAY,
+      items: scenarioSchema
+    }
+  },
+  required: ["scenarios"]
+};
+
 // Diversity Constraints to avoid repetition
 const PRESSURE_SOURCES = [
-  "A demanding supervisor or senior Principal Investigator",
-  "A direct competitor in the same research field",
-  "A prestigious journal's reviewer or editor",
-  "A looming grant deadline or funding agency requirement",
-  "A close colleague or friend asking for a favor",
-  "Personal financial anxiety or career instability",
-  "The media, public attention, or university PR department",
-  "A difficult collaborative partner from another institution"
+  "A demanding supervisor",
+  "A direct competitor",
+  "A journal reviewer",
+  "A grant deadline",
+  "A close colleague",
+  "Financial anxiety",
+  "Public attention",
+  "A difficult partner",
+  "Visa/Immigration status",
+  "Media scrutiny",
+  "Departmental politics",
+  "Family emergency",
+  "Equipment failure",
+  "Data storage crash"
 ];
 
 const DILEMMA_TYPES = [
-  "A subtle 'gray area' interpretation of data points",
-  "A conflict between personal loyalty and professional truth",
-  "A resource scarcity issue (lack of time, funding, or equipment)",
-  "Witnessing subtle misconduct by a superior",
-  "A complex authorship or credit dispute",
-  "Pressure to cut corners to meet a deadline",
-  "Navigating bureaucratic barriers vs scientific efficiency"
+  "Gray area data interpretation",
+  "Loyalty vs Truth",
+  "Resource scarcity",
+  "Witnessing misconduct",
+  "Authorship dispute",
+  "Deadline pressure",
+  "Bureaucracy vs Efficiency",
+  "Reproducibility failure",
+  "Reviewer bias",
+  "Plagiarism suspicion",
+  "Harassment/Power abuse",
+  "Open Data non-compliance"
 ];
+
+const getRandomConstraint = () => {
+  return {
+    pressure: PRESSURE_SOURCES[Math.floor(Math.random() * PRESSURE_SOURCES.length)],
+    dilemma: DILEMMA_TYPES[Math.floor(Math.random() * DILEMMA_TYPES.length)]
+  };
+};
 
 export const generateScenario = async (
   role: ResearcherRole, 
@@ -78,64 +108,37 @@ export const generateScenario = async (
   language: string,
   currentStats: any,
   topicId: string,
-  previousContext?: string
+  avoidTitles: string[] = []
 ): Promise<Scenario> => {
   
-  let specificGuidance = "";
-
-  // Set guidance based on provided topic
-  switch(topicId) {
-      case 'plagiarism': specificGuidance = "Focus on micro-plagiarism, mosaic plagiarism, improper paraphrasing, or self-plagiarism."; break;
-      case 'authorship': specificGuidance = "Focus on disputes about gift authorship, ghost authorship, credit order, or acknowledgement."; break;
-      case 'data': specificGuidance = "Focus on data cleaning vs manipulation, p-hacking, image enhancement, or selective reporting."; break;
-      case 'coi': specificGuidance = "Focus on undisclosed financial conflicts, personal relationships, or reviewing a competitor/friend."; break;
-      case 'peer_review': specificGuidance = "Focus on breaching confidentiality, stealing ideas during review, or biased reviewing."; break;
-      case 'mentorship': specificGuidance = "Focus on power dynamics, harassment, exploitation of juniors, or lack of supervision."; break;
-      case 'collaboration': specificGuidance = "Focus on international partnerships, cultural differences in ethics, or ownership of shared ideas."; break;
-      case 'open_science': specificGuidance = "Focus on pressure to not share data, fear of scooping, or hiding negative results."; break;
-      default: specificGuidance = "Focus on a subtle ethical dilemma in general research integrity.";
-  }
-
-  // Randomize Constraints for Diversity
-  const pressure = PRESSURE_SOURCES[Math.floor(Math.random() * PRESSURE_SOURCES.length)];
-  const dilemma = DILEMMA_TYPES[Math.floor(Math.random() * DILEMMA_TYPES.length)];
+  const { pressure, dilemma } = getRandomConstraint();
+  
+  // Create an exclusion instruction if there are titles to avoid
+  const avoidInstruction = avoidTitles.length > 0 
+    ? `IMPORTANT: Do NOT generate scenarios with these titles or similar storylines: ${avoidTitles.slice(-15).join(', ')}.`
+    : '';
 
   const prompt = `
-    Generate a realistic, subtle research integrity scenario for a ${role}. 
-    Turn number: ${turnCount}.
-    Language: ${language}.
-    Current Stats: ${JSON.stringify(currentStats)}.
+    Generate a research integrity scenario for a ${role}. 
+    Turn: ${turnCount}. Language: ${language}.
+    Stats: ${JSON.stringify(currentStats)}.
     
-    CRITICAL INSTRUCTION: 
-    1. Primary Focus Topic: ${topicId}
-    2. Source of External Pressure: ${pressure}
-    3. Type of Ethical Dilemma: ${dilemma}
+    Topic: ${topicId}
+    Pressure: ${pressure}
+    Dilemma: ${dilemma}
+
+    ${avoidInstruction}
+
+    IMPORTANT: Treat this as a standalone EPISODE in a career.
+    Keep descriptions CONCISE and PUNCHY.
+    Provide 3 choices. For EACH, pre-calculate the outcome/stats impacts (-10 to +10).
     
-    Specific Topic Guidance: ${specificGuidance}
+    Outcome logic:
+    1. Easy/Passive (Low Integrity, High Convenience)
+    2. Aggressive (High Career, Low Collab/Rigor)
+    3. Ethical (High Integrity, Difficult/Slow)
 
-    IMPORTANT: Provide ALL content (including 'navigatorSpeaking' and 'outcome' details) in ${language}.
-
-    The scenario should focus on "grey areas" and subtle pressures in academia.
-    
-    For 'navigatorSpeaking' (Scenario Level):
-    - If Turn 1: Briefly explain that the chart shows their professional balance.
-    - If any stat < 40: Give a critical warning about that specific risk.
-    - Otherwise: Give a general tip about trade-offs related to the current scenario topic.
-
-    Provide 3 distinct choices. For EACH choice, you MUST pre-calculate the outcome in the 'outcome' object:
-    1. The "Easy/Passive" path (often leads to lower integrity but might save time/stress).
-    2. The "Aggressive/Self-serving" path (might boost career short term but hurts collaboration/rigor).
-    3. The "Strategic/Ethical" path (balanced, open science approach, might be harder or slower).
-    
-    Evaluate the outcomes for each choice based on:
-    - Integrity (Ethical conduct)
-    - Career (Prestige, funding)
-    - Rigor (Quality, reproducibility)
-    - Collaboration (Trust, team)
-    - Wellbeing (Mental health, stress)
-    Assign score changes (-10 to +10) for EACH dimension in the outcome.
-
-    ${previousContext ? `Previous context/outcome to build upon: ${previousContext}` : ''}
+    Output JSON only.
   `;
 
   try {
@@ -145,7 +148,7 @@ export const generateScenario = async (
       config: {
         responseMimeType: "application/json",
         responseSchema: scenarioSchema,
-        temperature: 0.85 
+        temperature: 0.95 // High temperature for diversity
       }
     });
 
@@ -155,24 +158,103 @@ export const generateScenario = async (
     throw new Error("No text response from Gemini");
   } catch (error) {
     console.error("Error generating scenario:", error);
-    // Fallback scenario in case of API failure
-    return {
-      title: "Connection Error",
-      description: "We couldn't reach the AI simulation engine. Please check your connection.",
-      context: "System Error",
-      choices: [
-        { 
-          id: "retry", 
-          text: "Retry Connection",
-          outcome: {
-            outcomeTitle: "System Offline",
-            outcomeDescription: "Please check your internet connection and try again.",
-            integrityScoreChange: 0, careerScoreChange: 0, rigorScoreChange: 0, collaborationScoreChange: 0, wellbeingScoreChange: 0,
-            longTermImplication: "None", actionableStrategy: "Refresh the page.", openSciencePrinciple: "N/A", navigatorSpeaking: "System offline."
-          }
-        }
-      ],
-      navigatorSpeaking: "System is offline."
-    };
+    return getFallbackScenario();
   }
 };
+
+export interface BatchRequest {
+  role: ResearcherRole;
+  turn: number;
+  topic: string;
+  currentStats: any;
+}
+
+export const generateScenarioBatch = async (
+  requests: BatchRequest[],
+  language: string,
+  avoidTitles: string[] = []
+): Promise<Record<number, Scenario>> => {
+  
+  if (requests.length === 0) return {};
+
+  const avoidInstruction = avoidTitles.length > 0 
+    ? `GLOBAL NEGATIVE CONSTRAINT: Do NOT repeat titles or themes from: ${avoidTitles.slice(-15).join(', ')}`
+    : '';
+
+  const prompt = `
+    Generate ${requests.length} distinct research integrity scenarios.
+    Output a JSON object with a "scenarios" array containing the results in order.
+    Language: ${language}.
+    
+    ${avoidInstruction}
+
+    ${requests.map((req, i) => {
+      const constraints = getRandomConstraint();
+      return `
+        ITEM ${i + 1}:
+        Role: ${req.role}
+        Turn: ${req.turn}
+        Topic: ${req.topic}
+        Stats: ${JSON.stringify(req.currentStats)}
+        Pressure: ${constraints.pressure}
+        Dilemma: ${constraints.dilemma}
+      `;
+    }).join('\n')}
+
+    GLOBAL RULES:
+    - Each scenario must be unique and specific to its Topic.
+    - Ensure scenarios in this batch are DISTINCT from each other.
+    - Treat each as an episode.
+    - Provide 3 choices per scenario with calculated outcomes.
+    - Keep concise.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: MODEL_NAME,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: batchSchema,
+        temperature: 0.95 // High temperature for batch diversity
+      }
+    });
+
+    if (response.text) {
+      const parsed = JSON.parse(response.text);
+      if (parsed.scenarios && Array.isArray(parsed.scenarios)) {
+        const result: Record<number, Scenario> = {};
+        parsed.scenarios.forEach((scen: Scenario, idx: number) => {
+          if (idx < requests.length) {
+            result[requests[idx].turn] = scen;
+          }
+        });
+        return result;
+      }
+    }
+    throw new Error("Invalid batch response format");
+  } catch (error) {
+    console.error("Error generating batch:", error);
+    // Return empty object on failure, app will retry individually if needed
+    return {};
+  }
+};
+
+const getFallbackScenario = (): Scenario => ({
+  title: "Connection Interrupted",
+  description: "We couldn't generate the next simulation segment.",
+  context: "Network Error",
+  choices: [
+    { 
+      id: "retry", 
+      text: "Retry Connection",
+      outcome: {
+        outcomeTitle: "System Offline",
+        outcomeDescription: "Please check internet.",
+        integrityScoreChange: 0, careerScoreChange: 0, rigorScoreChange: 0, collaborationScoreChange: 0, wellbeingScoreChange: 0,
+        longTermImplication: "None", actionableStrategy: "Refresh.", openSciencePrinciple: "N/A", navigatorSpeaking: "System offline."
+      }
+    }
+  ],
+  navigatorSpeaking: "System is offline."
+});

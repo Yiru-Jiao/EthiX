@@ -56,8 +56,9 @@ export const ScenarioLibrary = {
 
   /**
    * Get a random scenario matching the role, topic, AND language.
+   * Filters out scenarios with titles present in avoidTitles.
    */
-  getRandom: (role: ResearcherRole, topic: string, language: string): Scenario | null => {
+  getRandom: (role: ResearcherRole, topic: string, language: string, avoidTitles: string[] = []): Scenario | null => {
     try {
       const stored = localStorage.getItem(LIBRARY_KEY);
       if (!stored) return null;
@@ -67,7 +68,8 @@ export const ScenarioLibrary = {
       const matching = library.filter(entry => 
         entry.role === role && 
         entry.topic === topic && 
-        entry.language === language
+        entry.language === language &&
+        !avoidTitles.includes(entry.scenario.title) // Filter out previously seen titles
       );
       
       if (matching.length === 0) return null;

@@ -9,11 +9,12 @@ import ScenarioView from './components/ScenarioView';
 import FeedbackView from './components/FeedbackView';
 import WelcomeView from './components/WelcomeView';
 import { GamePhase, ResearcherRole, Scenario, Feedback, ScenarioChoice } from './types';
-import { generateScenario } from './services/geminiService';
+import { generateScenario, generateScenarioBatch, BatchRequest } from './services/geminiService';
 import { ScenarioLibrary } from './services/scenarioLibrary';
 
 const TURNS_PER_ROUND = 5;
 const STORAGE_KEY = 'integrity_quest_save_v2'; 
+const PREFETCH_LOOKAHEAD = 3; // Aggressively fetch next 3 turns
 
 const App: React.FC = () => {
   const [phase, setPhase] = useState<GamePhase>(GamePhase.WELCOME);
@@ -32,9 +33,12 @@ const App: React.FC = () => {
   const [currentScenario, setCurrentScenario] = useState<Scenario | null>(null);
   const [currentFeedback, setCurrentFeedback] = useState<Feedback | null>(null);
   
-  // Buffer for the NEXT scenario to speed up transitions
-  const [nextScenarioBuffer, setNextScenarioBuffer] = useState<Scenario | null>(null);
-  const prefetchStartedRef = useRef<number | null>(null); // Tracks which turn we are currently prefetching to avoid duplicates
+  // --- BUFFER ---
+  const [scenarioBuffer, setScenarioBuffer] = useState<Record<number, Scenario>>({});
+  // Track which turns are currently being fetched
+  const fetchingTurnsRef = useRef<Set<number>>(new Set());
+  // Track seen scenario titles to avoid repetition in current session
+  const seenTitlesRef = useRef<Set<string>>(new Set<string>());
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,15 +46,11 @@ const App: React.FC = () => {
   const [hasSavedGame, setHasSavedGame] = useState(false);
   const [showExitModal, setShowExitModal] = useState(false);
 
-  // Check for saved game on mount and Initialize Seeds
   useEffect(() => {
-    // Load Save
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       setHasSavedGame(true);
     }
-
-    // Initialize Library Seeds for fast start
     ScenarioLibrary.ensureSeeds();
   }, []);
 
@@ -62,7 +62,6 @@ const App: React.FC = () => {
     wellbeing: wellbeingScore
   }), [integrityScore, careerScore, rigorScore, collaborationScore, wellbeingScore]);
 
-  // Helper to determine topic based on turn
   const getTopicForTurn = useCallback((targetTurn: number, topics: string[]) => {
     if (!topics || topics.length === 0) return "General Research Integrity";
     return topics[(targetTurn - 1) % topics.length];
@@ -70,254 +69,230 @@ const App: React.FC = () => {
 
   const saveProgress = useCallback(() => {
     const gameState = {
-      phase,
-      role,
-      turn,
-      language,
-      selectedTopics,
+      phase, role, turn, language, selectedTopics,
       stats: getStatsObject(),
-      currentScenario,
-      currentFeedback
+      currentScenario, currentFeedback,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(gameState));
     setHasSavedGame(true);
   }, [phase, role, turn, language, selectedTopics, getStatsObject, currentScenario, currentFeedback]);
 
-  const handleSaveAndExit = () => {
-    saveProgress();
-    setPhase(GamePhase.INTRO);
-  };
+  // --- SMART BATCH PRE-FETCHING ---
+  const checkAndPrefetch = useCallback(async (currentTurn: number, topics: string[]) => {
+    const currentRoundEnd = Math.ceil(currentTurn / TURNS_PER_ROUND) * TURNS_PER_ROUND;
+    const batchRequests: BatchRequest[] = [];
+    const neededTurns: number[] = [];
+    const seenArray = Array.from(seenTitlesRef.current) as string[];
 
-  const handleResume = () => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const state = JSON.parse(saved);
-        setRole(state.role);
-        setTurn(state.turn);
-        setLanguage(state.language || 'English');
-        setSelectedTopics(state.selectedTopics || []);
-        
-        setIntegrityScore(state.stats?.integrity ?? 50);
-        setCareerScore(state.stats?.career ?? 50);
-        setRigorScore(state.stats?.rigor ?? 50);
-        setCollaborationScore(state.stats?.collaboration ?? 50);
-        setWellbeingScore(state.stats?.wellbeing ?? 50);
+    // Identify needed turns in the lookahead window
+    for (let i = 1; i <= PREFETCH_LOOKAHEAD; i++) {
+      const targetTurn = currentTurn + i;
+      
+      // Stop if we cross into the next round (wait for game over screen)
+      if (targetTurn > currentRoundEnd) break;
 
-        setCurrentScenario(state.currentScenario);
-        setCurrentFeedback(state.currentFeedback);
-        setPhase(state.phase);
+      // Skip if already buffered or currently fetching
+      if (scenarioBuffer[targetTurn] || fetchingTurnsRef.current.has(targetTurn)) continue;
+
+      // Check library first with exclusion
+      const topic = getTopicForTurn(targetTurn, topics);
+      const cached = ScenarioLibrary.getRandom(role, topic, language, seenArray);
+      
+      if (cached) {
+        console.log(`[Buffer] Loaded Turn ${targetTurn} from Library.`);
+        setScenarioBuffer(prev => ({ ...prev, [targetTurn]: cached }));
+        // Add to seen so we don't accidentally fetch it again if logic runs weirdly
+        // (Though we don't officially 'see' it until it's presented, adding to cache prevents dupes)
+      } else {
+        // Need to fetch via API
+        neededTurns.push(targetTurn);
+        batchRequests.push({
+          role,
+          turn: targetTurn,
+          topic,
+          currentStats: getStatsObject() // Use current stats as approximation
+        });
       }
-    } catch (e) {
-      console.error("Failed to load save", e);
-      setError("Failed to load saved game.");
     }
-  };
 
-  const handleLogoClick = () => {
-    if (phase === GamePhase.SCENARIO || phase === GamePhase.FEEDBACK) {
-      setShowExitModal(true);
-    } else {
-      setPhase(GamePhase.WELCOME);
-    }
-  };
+    if (batchRequests.length === 0) return;
 
-  const confirmExit = (shouldSave: boolean) => {
-    if (shouldSave) {
-      saveProgress();
-    } else {
-      localStorage.removeItem(STORAGE_KEY);
-      setHasSavedGame(false);
-    }
-    setShowExitModal(false);
-    setPhase(GamePhase.INTRO);
-  };
-
-  // Phase 1: User selects Role -> Transition to Topic Selection
-  const handleRoleSelect = (selectedRole: ResearcherRole) => {
-    setRole(selectedRole);
-    setPhase(GamePhase.TOPIC_SELECTION);
-  };
-
-  // Phase 2: User confirms topics -> Start Game
-  const handleTopicsConfirmed = (topics: string[]) => {
-    setSelectedTopics(topics);
-    startGame(topics);
-  };
-
-  const handleBackToRole = () => {
-    setPhase(GamePhase.INTRO);
-  };
-
-  const handleEnterLab = () => {
-    setPhase(GamePhase.INTRO);
-  };
-
-  // --- BACKGROUND GENERATION LOGIC ---
-  const triggerBackgroundGeneration = useCallback(async (nextTurn: number, currentStats: any, context?: string) => {
-    // Determine the next topic
-    const topic = getTopicForTurn(nextTurn, selectedTopics);
+    // Lock turns
+    neededTurns.forEach(t => fetchingTurnsRef.current.add(t));
     
-    // Check if we already have this in buffer or are fetching it
-    if (prefetchStartedRef.current === nextTurn) return;
-    prefetchStartedRef.current = nextTurn;
-    
-    console.log(`[Background] Prefetching scenario for Turn ${nextTurn} (Topic: ${topic}, Lang: ${language})...`);
-
     try {
-      // 1. Generate new content "behind the screen" (Now includes all potential outcomes!)
-      const scenario = await generateScenario(role, nextTurn, language, currentStats, topic, context);
+      console.log(`[Buffer] Fetching batch for Turns: ${neededTurns.join(', ')}`);
+      // Use batch API for efficiency, passing seen titles to avoid
+      const results = await generateScenarioBatch(batchRequests, language, seenArray);
       
-      // 2. Save to buffer for immediate use
-      setNextScenarioBuffer(scenario);
+      // Update buffer and library
+      setScenarioBuffer(prev => ({ ...prev, ...results }));
+      Object.entries(results).forEach(([t, scen]) => {
+         // Find which topic corresponded to this turn
+         const req = batchRequests.find(r => r.turn === Number(t));
+         if (req) {
+            ScenarioLibrary.add(role, req.topic, scen, language);
+         }
+      });
       
-      // 3. Accumulatively save to Library for future reuse, ensuring we store with current language
-      ScenarioLibrary.add(role, topic, scenario, language);
-      
-      console.log(`[Background] Scenario for Turn ${nextTurn} ready in buffer.`);
     } catch (e) {
-      console.error("[Background] Failed to prefetch scenario", e);
-      prefetchStartedRef.current = null; // Reset lock on failure
+      console.warn("Batch prefetch failed", e);
+    } finally {
+      // Unlock turns
+      neededTurns.forEach(t => fetchingTurnsRef.current.delete(t));
     }
-  }, [role, language, selectedTopics, getTopicForTurn]);
 
-  // --- MAIN LOADING LOGIC ---
+  }, [scenarioBuffer, role, language, getTopicForTurn, getStatsObject]);
+
+  // Trigger prefetch on appropriate phases
+  useEffect(() => {
+    // Also run during LOADING to get ahead
+    if (phase === GamePhase.SCENARIO || phase === GamePhase.FEEDBACK || phase === GamePhase.LOADING) {
+       // Small delay to ensure state settles, but fast enough to start parallel reqs
+       const timer = setTimeout(() => {
+          checkAndPrefetch(turn, selectedTopics);
+       }, 100);
+       return () => clearTimeout(timer);
+    }
+  }, [turn, phase, checkAndPrefetch, selectedTopics]);
+
+
+  // --- MAIN FLOW ---
+
   const proceedToTurn = async (targetTurn: number, topics: string[] = selectedTopics) => {
     setLoading(true);
     setTurn(targetTurn);
     setPhase(GamePhase.LOADING);
     
-    try {
-      // 1. Check Buffer (Fastest - Background generation finished)
-      if (nextScenarioBuffer && prefetchStartedRef.current === targetTurn) {
-        console.log("[Loader] Using Buffered Scenario (Instant Load)");
-        setCurrentScenario(nextScenarioBuffer);
-        setNextScenarioBuffer(null);
-        prefetchStartedRef.current = null;
-        setLoading(false);
-        setPhase(GamePhase.SCENARIO);
-        return;
-      }
-
-      // 2. Check Library (Fast - Reuse existing)
-      const topic = getTopicForTurn(targetTurn, topics);
-      // STRICTLY filter by language now
-      const cachedScenario = ScenarioLibrary.getRandom(role, topic, language);
-      
-      if (cachedScenario) {
-        console.log(`[Loader] Using Library Scenario (Cached Load - ${language})`);
-        setCurrentScenario(cachedScenario);
+    // 1. Check Buffer (Instant)
+    if (scenarioBuffer[targetTurn]) {
+        console.log(`[Flow] Instant transition to Turn ${targetTurn}`);
+        const s = scenarioBuffer[targetTurn];
+        setCurrentScenario(s);
+        seenTitlesRef.current.add(s.title);
         
-        // Even if we use cached, trigger background gen to add variety to library for future
-        // We do this silently without awaiting
-        triggerBackgroundGeneration(targetTurn, getStatsObject(), "Variation generation");
-
+        // Clear used buffer entry
+        setScenarioBuffer(prev => {
+            const next = { ...prev };
+            delete next[targetTurn];
+            return next;
+        });
+        
         setLoading(false);
         setPhase(GamePhase.SCENARIO);
         return;
-      }
+    }
 
-      // 3. Fallback to API (Slow - Fresh generation)
-      console.log("[Loader] No buffer/cache. Fetching from API...");
-      const context = targetTurn > 1 ? currentFeedback?.longTermImplication : undefined;
-      const scenario = await generateScenario(role, targetTurn, language, getStatsObject(), topic, context);
-      
-      // Save this fresh one to library with correct language
-      ScenarioLibrary.add(role, topic, scenario, language);
+    // 2. Urgent Fetch (Buffer Miss)
+    console.log(`[Flow] Buffer miss for Turn ${targetTurn}. Fetching urgent...`);
+    try {
+        const topic = getTopicForTurn(targetTurn, topics);
+        const seenArray = Array.from(seenTitlesRef.current) as string[];
 
-      setCurrentScenario(scenario);
-      setPhase(GamePhase.SCENARIO);
+        // Double check library with exclusions just in case
+        const cached = ScenarioLibrary.getRandom(role, topic, language, seenArray);
+        if (cached) {
+             setCurrentScenario(cached);
+             seenTitlesRef.current.add(cached.title);
+        } else {
+             // Fallback to single generation for the urgent/blocking request
+             // Pass seen titles to avoid duplicates
+             const scenario = await generateScenario(role, targetTurn, language, getStatsObject(), topic, seenArray);
+             setCurrentScenario(scenario);
+             seenTitlesRef.current.add(scenario.title);
+             ScenarioLibrary.add(role, topic, scenario, language);
+        }
+        setPhase(GamePhase.SCENARIO);
     } catch (e) {
-      setError("Failed to generate scenario. Please check connection.");
-      setPhase(GamePhase.INTRO); 
+        setError("Connection failed. Please check your internet.");
+        setPhase(GamePhase.INTRO);
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
   };
 
-  // Initialize game
   const startGame = async (topics: string[]) => {
-    setIntegrityScore(50);
-    setCareerScore(50);
-    setRigorScore(50);
-    setCollaborationScore(50);
-    setWellbeingScore(50);
-
+    setIntegrityScore(50); setCareerScore(50); setRigorScore(50); 
+    setCollaborationScore(50); setWellbeingScore(50);
     setError(null);
-    setNextScenarioBuffer(null);
-    prefetchStartedRef.current = null;
-    
+    setScenarioBuffer({});
+    fetchingTurnsRef.current.clear();
     localStorage.removeItem(STORAGE_KEY);
     setHasSavedGame(false);
+    
+    // Start urgent fetch for Turn 1
+    const p1 = proceedToTurn(1, topics);
+    
+    // Concurrently start pre-fetching Turn 2, 3, 4 to reduce future latency
+    // We pass '1' as current turn so it looks ahead to 2, 3, 4
+    checkAndPrefetch(1, topics);
 
-    await proceedToTurn(1, topics);
+    await p1;
   };
 
-  const clamp = (val: number) => Math.min(100, Math.max(0, val));
-
-  // Handle User Choice - INSTANT RESPONSE
   const handleChoice = (choice: ScenarioChoice) => {
     if (!currentScenario) return;
-
-    // 1. Get pre-calculated outcome (Instant, no API call)
-    const feedback = choice.outcome;
     
-    // 2. Update Stats
-    const newIntegrity = clamp(integrityScore + (feedback.integrityScoreChange || 0));
-    const newCareer = clamp(careerScore + (feedback.careerScoreChange || 0));
-    const newRigor = clamp(rigorScore + (feedback.rigorScoreChange || 0));
-    const newCollab = clamp(collaborationScore + (feedback.collaborationScoreChange || 0));
-    const newWellbeing = clamp(wellbeingScore + (feedback.wellbeingScoreChange || 0));
-
-    setIntegrityScore(newIntegrity);
-    setCareerScore(newCareer);
-    setRigorScore(newRigor);
-    setCollaborationScore(newCollab);
-    setWellbeingScore(newWellbeing);
+    // Instant Outcome Application
+    const fb = choice.outcome;
+    const clamp = (val: number) => Math.min(100, Math.max(0, val));
     
-    // 3. Show Feedback
-    setCurrentFeedback(feedback);
+    setIntegrityScore(s => clamp(s + (fb.integrityScoreChange || 0)));
+    setCareerScore(s => clamp(s + (fb.careerScoreChange || 0)));
+    setRigorScore(s => clamp(s + (fb.rigorScoreChange || 0)));
+    setCollaborationScore(s => clamp(s + (fb.collaborationScoreChange || 0)));
+    setWellbeingScore(s => clamp(s + (fb.wellbeingScoreChange || 0)));
+
+    setCurrentFeedback(fb);
     setPhase(GamePhase.FEEDBACK);
-
-    // 4. Trigger Background Generation for NEXT Turn
-    const nextTurn = turn + 1;
-    const predictedStats = {
-      integrity: newIntegrity,
-      career: newCareer,
-      rigor: newRigor,
-      collaboration: newCollab,
-      wellbeing: newWellbeing
-    };
-    
-    // Only prefetch if we haven't hit the round limit
-    if (nextTurn % TURNS_PER_ROUND !== 1) { 
-        // Pass the long term implication as context for the next turn
-        triggerBackgroundGeneration(nextTurn, predictedStats, feedback.longTermImplication);
-    }
   };
 
-  // Next Turn Logic
   const handleNextTurn = async () => {
     if (turn % TURNS_PER_ROUND === 0) {
       setPhase(GamePhase.GAME_OVER);
-      return;
+    } else {
+      await proceedToTurn(turn + 1);
     }
-    await proceedToTurn(turn + 1);
   };
 
   const handleContinueJourney = async () => {
      await proceedToTurn(turn + 1);
   };
 
-  const handleRestart = () => {
-    setPhase(GamePhase.INTRO);
+  // UI Handlers
+  const handleRoleSelect = (r: ResearcherRole) => { setRole(r); setPhase(GamePhase.TOPIC_SELECTION); };
+  const handleTopicsConfirmed = (t: string[]) => { setSelectedTopics(t); startGame(t); };
+  const handleBackToRole = () => setPhase(GamePhase.INTRO);
+  const handleEnterLab = () => setPhase(GamePhase.INTRO);
+  const handleLogoClick = () => {
+    if (phase === GamePhase.SCENARIO || phase === GamePhase.FEEDBACK) setShowExitModal(true);
+    else setPhase(GamePhase.WELCOME);
+  };
+  const handleSaveAndExit = () => { saveProgress(); setPhase(GamePhase.INTRO); };
+  const handleRestart = () => setPhase(GamePhase.INTRO);
+  
+  const handleResume = () => {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+          const s = JSON.parse(saved);
+          setRole(s.role); setTurn(s.turn); setLanguage(s.language); setSelectedTopics(s.selectedTopics);
+          setIntegrityScore(s.stats.integrity); setCareerScore(s.stats.career);
+          setRigorScore(s.stats.rigor); setCollaborationScore(s.stats.collaboration);
+          setWellbeingScore(s.stats.wellbeing);
+          setCurrentScenario(s.currentScenario); setCurrentFeedback(s.currentFeedback);
+          
+          // Restore seen titles from loaded scenario if possible, or just add current
+          if (s.currentScenario) seenTitlesRef.current.add(s.currentScenario.title);
+          
+          setPhase(s.phase);
+      }
   };
 
-  useEffect(() => {
-    if (phase === GamePhase.GAME_OVER) {
-        saveProgress();
-    }
-  }, [phase, saveProgress]);
+  const confirmExit = (shouldSave: boolean) => {
+    if (shouldSave) saveProgress();
+    else { localStorage.removeItem(STORAGE_KEY); setHasSavedGame(false); }
+    setShowExitModal(false); setPhase(GamePhase.INTRO);
+  };
 
   const currentRoundMaxTurns = Math.ceil(turn / TURNS_PER_ROUND) * TURNS_PER_ROUND;
 
@@ -330,40 +305,23 @@ const App: React.FC = () => {
       />
       
       <main className="flex-grow max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 flex flex-col">
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg">
-            Error: {error}
-          </div>
-        )}
+        {error && <div className="mb-6 p-4 bg-red-50 text-red-700 rounded-lg">Error: {error}</div>}
 
-        {phase === GamePhase.WELCOME && (
-          <WelcomeView onEnter={handleEnterLab} />
-        )}
-
+        {phase === GamePhase.WELCOME && <WelcomeView onEnter={handleEnterLab} />}
         {phase === GamePhase.INTRO && (
           <IntroView 
-            onRoleSelect={handleRoleSelect} 
-            onResume={handleResume}
-            hasSavedGame={hasSavedGame}
-            onLanguageChange={setLanguage}
-            currentLanguage={language}
+            onRoleSelect={handleRoleSelect} onResume={handleResume}
+            hasSavedGame={hasSavedGame} onLanguageChange={setLanguage} currentLanguage={language}
           />
         )}
-
         {phase === GamePhase.TOPIC_SELECTION && (
-          <TopicSelectionView 
-            role={role}
-            onConfirm={handleTopicsConfirmed}
-            onBack={handleBackToRole}
-          />
+          <TopicSelectionView role={role} onConfirm={handleTopicsConfirmed} onBack={handleBackToRole} />
         )}
 
         {phase === GamePhase.LOADING && (
           <div className="flex flex-col items-center justify-center flex-grow h-96">
             <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-indigo-600 mb-4"></div>
-            <p className="text-lg font-medium text-slate-600">
-               {nextScenarioBuffer ? "Finalizing simulation..." : "Preparing unique scenario..."}
-            </p>
+            <p className="text-lg font-medium text-slate-600">Simulating scenario...</p>
           </div>
         )}
 
@@ -371,28 +329,15 @@ const App: React.FC = () => {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-2">
               {phase === GamePhase.SCENARIO && currentScenario && (
-                <ScenarioView 
-                  scenario={currentScenario} 
-                  onMakeChoice={handleChoice} 
-                  isEvaluating={loading}
-                />
+                <ScenarioView scenario={currentScenario} onMakeChoice={handleChoice} isEvaluating={loading} />
               )}
-
               {phase === GamePhase.FEEDBACK && currentFeedback && (
-                <FeedbackView 
-                  feedback={currentFeedback} 
-                  onNext={handleNextTurn}
-                  isLoading={loading}
-                />
+                <FeedbackView feedback={currentFeedback} onNext={handleNextTurn} isLoading={loading} />
               )}
             </div>
-
             <div className="lg:col-span-1">
               <StatsPanel 
-                stats={getStatsObject()}
-                turn={turn}
-                totalTurns={currentRoundMaxTurns}
-                role={role}
+                stats={getStatsObject()} turn={turn} totalTurns={currentRoundMaxTurns} role={role}
                 navigatorMessage={phase === GamePhase.SCENARIO ? currentScenario?.navigatorSpeaking : currentFeedback?.navigatorSpeaking}
               />
             </div>
@@ -403,83 +348,30 @@ const App: React.FC = () => {
           <div className="max-w-4xl mx-auto text-center py-8">
              <div className="bg-white rounded-2xl shadow-xl p-8 border border-slate-200">
                 <div className="mb-6">
-                    <span className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-bold uppercase tracking-wide">
-                        Milestone Reached
-                    </span>
-                    <h2 className="text-3xl font-extrabold text-slate-900 mt-3">
-                        Round {Math.floor(turn / TURNS_PER_ROUND)} Complete
-                    </h2>
-                    <p className="text-slate-600 mt-2">
-                        You have navigated {turn} scenarios. Your research profile is taking shape.
-                    </p>
+                    <span className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-bold uppercase tracking-wide">Milestone Reached</span>
+                    <h2 className="text-3xl font-extrabold text-slate-900 mt-3">Round {Math.floor(turn / TURNS_PER_ROUND)} Complete</h2>
                 </div>
-                
+                {/* Stats Grid */}
                 <div className="grid grid-cols-5 gap-2 mb-8 max-w-2xl mx-auto">
-                   {[
-                     { l: 'Integrity', v: integrityScore, c: 'text-emerald-600' },
-                     { l: 'Career', v: careerScore, c: 'text-blue-600' },
-                     { l: 'Rigor', v: rigorScore, c: 'text-violet-600' },
-                     { l: 'Collab', v: collaborationScore, c: 'text-amber-600' },
-                     { l: 'Wellbeing', v: wellbeingScore, c: 'text-pink-600' },
-                   ].map((s) => (
+                   {[{ l: 'Integrity', v: integrityScore, c: 'text-emerald-600' }, { l: 'Career', v: careerScore, c: 'text-blue-600' }, { l: 'Rigor', v: rigorScore, c: 'text-violet-600' }, { l: 'Collab', v: collaborationScore, c: 'text-amber-600' }, { l: 'Wellbeing', v: wellbeingScore, c: 'text-pink-600' }].map((s) => (
                      <div key={s.l} className="text-center p-3 rounded-lg bg-slate-50 border border-slate-100">
                        <div className={`text-2xl font-bold ${s.c} mb-1`}>{s.v}%</div>
                        <div className="text-[10px] font-bold text-slate-500 uppercase truncate">{s.l}</div>
                      </div>
                    ))}
                 </div>
-
+                {/* Insight */}
                 <div className="bg-indigo-50 p-6 rounded-xl border border-indigo-100 mb-8 text-left max-w-2xl mx-auto">
                   <h3 className="font-bold text-indigo-900 mb-2">Navigator's Insight</h3>
                   <p className="text-indigo-800 text-sm leading-relaxed">
-                    {integrityScore > 80 && rigorScore > 70
-                     ? "Your dedication to Open Science is commendable. You've built a strong foundation of trust and quality. The road ahead may bring more complex challenges to your growing reputation." 
-                     : integrityScore > 50 
-                       ? "You are maintaining a delicate balance. As your career advances, the temptation to cut corners to save time or resources will likely increase. Stay vigilant."
-                       : "Your current trajectory prioritizes short-term gains over long-term stability. This approach is risky. Consider focusing on restoring your Integrity and Rigor in the next phase."
-                    }
+                    {integrityScore > 80 && rigorScore > 70 ? "Excellent dedication to Open Science. You've built strong trust." : integrityScore > 50 ? "You are maintaining a delicate balance. Watch out for shortcuts." : "Your strategy prioritizes short-term gains over stability. Consider refocusing on Integrity."}
                   </p>
                 </div>
-
+                {/* Buttons */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl mx-auto">
-                    <button 
-                      onClick={handleContinueJourney}
-                      className="py-4 px-6 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-all shadow-lg hover:shadow-xl flex flex-col items-center justify-center gap-1 group"
-                    >
-                      <span className="flex items-center gap-2">
-                        Continue Journey
-                        <svg className="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                        </svg>
-                      </span>
-                      <span className="text-xs text-slate-400 font-normal">Next 5 scenarios</span>
-                    </button>
-
-                    <button 
-                      onClick={handleSaveAndExit}
-                      className="py-4 px-6 bg-white border-2 border-slate-200 text-slate-700 font-bold rounded-xl hover:border-indigo-500 hover:text-indigo-600 transition-all flex flex-col items-center justify-center gap-1"
-                    >
-                       <span className="flex items-center gap-2">
-                         Save & Exit
-                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-                         </svg>
-                       </span>
-                       <span className="text-xs text-slate-400 font-normal">Resume later</span>
-                    </button>
-
-                    <button 
-                      onClick={handleRestart}
-                      className="py-4 px-6 bg-white border-2 border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-red-50 hover:border-red-200 hover:text-red-700 transition-all flex flex-col items-center justify-center gap-1"
-                    >
-                       <span className="flex items-center gap-2">
-                         Start New Career
-                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                         </svg>
-                       </span>
-                       <span className="text-xs text-slate-400 font-normal">Reset scores</span>
-                    </button>
+                    <button onClick={handleContinueJourney} className="py-4 px-6 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-all shadow-lg flex flex-col items-center justify-center group"><span className="flex items-center gap-2">Continue Journey <svg className="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg></span></button>
+                    <button onClick={handleSaveAndExit} className="py-4 px-6 bg-white border-2 border-slate-200 text-slate-700 font-bold rounded-xl hover:border-indigo-500 hover:text-indigo-600 transition-all flex flex-col items-center justify-center">Save & Exit</button>
+                    <button onClick={handleRestart} className="py-4 px-6 bg-white border-2 border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-red-50 hover:text-red-700 transition-all flex flex-col items-center justify-center">Start New Career</button>
                 </div>
              </div>
           </div>
@@ -487,33 +379,14 @@ const App: React.FC = () => {
       </main>
 
       <Footer />
-
       {showExitModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
             <h3 className="text-xl font-bold text-slate-900 mb-2">Leave current game?</h3>
-            <p className="text-slate-600 mb-6">You have an active session. Would you like to save your progress before returning to the main menu?</p>
-            
-            <div className="flex flex-col gap-3">
-              <button 
-                onClick={() => confirmExit(true)}
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-                Save & Exit
-              </button>
-              <button 
-                onClick={() => confirmExit(false)}
-                className="w-full py-3 bg-white border-2 border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-red-600 hover:border-red-200 font-bold rounded-lg transition-colors"
-              >
-                Exit without Saving
-              </button>
-              <button 
-                onClick={() => setShowExitModal(false)}
-                className="w-full py-2 text-slate-500 font-medium hover:text-slate-800 transition-colors mt-2"
-              >
-                Cancel
-              </button>
+            <div className="flex flex-col gap-3 mt-6">
+              <button onClick={() => confirmExit(true)} className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors">Save & Exit</button>
+              <button onClick={() => confirmExit(false)} className="w-full py-3 bg-white border-2 border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-red-600 font-bold rounded-lg">Exit without Saving</button>
+              <button onClick={() => setShowExitModal(false)} className="w-full py-2 text-slate-500 font-medium hover:text-slate-800 mt-2">Cancel</button>
             </div>
           </div>
         </div>
