@@ -8,6 +8,7 @@ import TopicSelectionView from './components/TopicSelectionView';
 import ScenarioView from './components/ScenarioView';
 import FeedbackView from './components/FeedbackView';
 import WelcomeView from './components/WelcomeView';
+import AdvisorView from './components/AdvisorView';
 import { GamePhase, ResearcherRole, Scenario, Feedback, ScenarioChoice } from './types';
 import { generateScenario, generateScenarioBatch, BatchRequest } from './services/geminiService';
 import { ScenarioLibrary } from './services/scenarioLibrary';
@@ -18,6 +19,8 @@ const PREFETCH_LOOKAHEAD = 3; // Aggressively fetch next 3 turns
 
 const App: React.FC = () => {
   const [phase, setPhase] = useState<GamePhase>(GamePhase.WELCOME);
+  const [previousPhase, setPreviousPhase] = useState<GamePhase>(GamePhase.WELCOME);
+  
   const [role, setRole] = useState<ResearcherRole>(ResearcherRole.PHD_STUDENT);
   const [turn, setTurn] = useState(1);
   const [language, setLanguage] = useState<string>('English');
@@ -68,6 +71,9 @@ const App: React.FC = () => {
   }, []);
 
   const saveProgress = useCallback(() => {
+    // Don't save if in temporary phases like Advisor or Welcome
+    if (phase === GamePhase.ADVISOR || phase === GamePhase.WELCOME) return;
+    
     const gameState = {
       phase, role, turn, language, selectedTopics,
       stats: getStatsObject(),
@@ -264,10 +270,13 @@ const App: React.FC = () => {
   const handleTopicsConfirmed = (t: string[]) => { setSelectedTopics(t); startGame(t); };
   const handleBackToRole = () => setPhase(GamePhase.INTRO);
   const handleEnterLab = () => setPhase(GamePhase.INTRO);
+  
   const handleLogoClick = () => {
     if (phase === GamePhase.SCENARIO || phase === GamePhase.FEEDBACK) setShowExitModal(true);
+    else if (phase === GamePhase.ADVISOR) setPhase(previousPhase);
     else setPhase(GamePhase.WELCOME);
   };
+  
   const handleSaveAndExit = () => { saveProgress(); setPhase(GamePhase.INTRO); };
   const handleRestart = () => setPhase(GamePhase.INTRO);
   
@@ -294,6 +303,19 @@ const App: React.FC = () => {
     setShowExitModal(false); setPhase(GamePhase.INTRO);
   };
 
+  // --- ADVISOR PORTAL LOGIC ---
+  const handleOpenAdvisor = () => {
+    // Save current phase so we can return to it (e.g., from Scenario to Advisor back to Scenario)
+    if (phase !== GamePhase.ADVISOR) {
+      setPreviousPhase(phase);
+      setPhase(GamePhase.ADVISOR);
+    }
+  };
+  
+  const handleCloseAdvisor = () => {
+    setPhase(previousPhase);
+  };
+
   const currentRoundMaxTurns = Math.ceil(turn / TURNS_PER_ROUND) * TURNS_PER_ROUND;
 
   return (
@@ -302,12 +324,24 @@ const App: React.FC = () => {
         gameActive={phase === GamePhase.SCENARIO || phase === GamePhase.FEEDBACK}
         onExit={handleSaveAndExit}
         onLogoClick={handleLogoClick}
+        onOpenAdvisor={phase !== GamePhase.ADVISOR ? handleOpenAdvisor : undefined}
       />
       
       <main className="flex-grow max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 flex flex-col">
         {error && <div className="mb-6 p-4 bg-red-50 text-red-700 rounded-lg">Error: {error}</div>}
 
-        {phase === GamePhase.WELCOME && <WelcomeView onEnter={handleEnterLab} />}
+        {phase === GamePhase.WELCOME && (
+          <WelcomeView onEnter={handleEnterLab} onOpenAdvisor={handleOpenAdvisor} />
+        )}
+        
+        {phase === GamePhase.ADVISOR && (
+          <AdvisorView 
+            onBack={handleCloseAdvisor} 
+            role={role} 
+            language={language}
+          />
+        )}
+
         {phase === GamePhase.INTRO && (
           <IntroView 
             onRoleSelect={handleRoleSelect} onResume={handleResume}

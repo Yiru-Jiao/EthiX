@@ -1,12 +1,14 @@
+
 import React from 'react';
 
 interface HeaderProps {
   gameActive?: boolean;
   onExit?: () => void;
   onLogoClick?: () => void;
+  onOpenAdvisor?: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ gameActive, onExit, onLogoClick }) => {
+const Header: React.FC<HeaderProps> = ({ gameActive, onExit, onLogoClick, onOpenAdvisor }) => {
   return (
     <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50 transition-all duration-300">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -32,7 +34,18 @@ const Header: React.FC<HeaderProps> = ({ gameActive, onExit, onLogoClick }) => {
         </button>
         
         <div className="flex items-center gap-6">
-          <nav className="hidden md:flex gap-6">
+          <nav className="hidden md:flex gap-6 items-center">
+             {onOpenAdvisor && (
+               <button 
+                 onClick={onOpenAdvisor}
+                 className="text-sm font-bold text-indigo-600 hover:text-indigo-800 transition-colors flex items-center gap-1 bg-indigo-50 px-3 py-1.5 rounded-full hover:bg-indigo-100"
+               >
+                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                 </svg>
+                 AI Advisor
+               </button>
+             )}
             <a 
               href="https://www.cos.io/" 
               target="_blank" 

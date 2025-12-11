@@ -1,10 +1,12 @@
+
 import React from 'react';
 
 interface WelcomeViewProps {
   onEnter: () => void;
+  onOpenAdvisor?: () => void;
 }
 
-const WelcomeView: React.FC<WelcomeViewProps> = ({ onEnter }) => {
+const WelcomeView: React.FC<WelcomeViewProps> = ({ onEnter, onOpenAdvisor }) => {
   return (
     <div className="relative w-full flex-grow flex flex-col items-center justify-center overflow-hidden bg-slate-50 py-12">
       
@@ -58,18 +60,30 @@ const WelcomeView: React.FC<WelcomeViewProps> = ({ onEnter }) => {
            ))}
         </div>
 
-        <button 
-          onClick={onEnter}
-          className="group relative px-10 py-5 bg-slate-900 text-white text-xl font-bold rounded-2xl overflow-hidden shadow-2xl hover:shadow-indigo-500/50 transition-all hover:scale-105 active:scale-95"
-        >
-          <div className="absolute inset-0 bg-gradient-to-r from-indigo-600 via-violet-600 to-pink-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-          <span className="relative z-10 flex items-center gap-3">
-            Enter Simulation
-            <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-            </svg>
-          </span>
-        </button>
+        <div className="flex flex-col gap-4 items-center">
+            <button 
+              onClick={onEnter}
+              className="group relative px-10 py-5 bg-slate-900 text-white text-xl font-bold rounded-2xl overflow-hidden shadow-2xl hover:shadow-indigo-500/50 transition-all hover:scale-105 active:scale-95 w-full md:w-auto min-w-[300px]"
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-indigo-600 via-violet-600 to-pink-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+              <span className="relative z-10 flex items-center justify-center gap-3">
+                Enter Simulation
+                <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                </svg>
+              </span>
+            </button>
+            
+            {onOpenAdvisor && (
+              <button 
+                onClick={onOpenAdvisor}
+                className="group px-6 py-3 bg-white text-slate-600 font-bold rounded-xl border border-slate-200 hover:border-indigo-300 hover:text-indigo-600 transition-all hover:shadow-lg flex items-center gap-2 text-sm"
+              >
+                 <span className="text-xl">🧭</span>
+                 <span>Facing a real dilemma? Open <span className="underline decoration-indigo-300">Advisor Portal</span></span>
+              </button>
+            )}
+        </div>
       </div>
     </div>
   );

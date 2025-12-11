@@ -1,5 +1,5 @@
 
-import { GoogleGenAI, Type, Schema } from "@google/genai";
+import { GoogleGenAI, Type, Schema, Chat } from "@google/genai";
 import { ResearcherRole, Scenario } from "../types";
 
 // Initialize Gemini
@@ -62,6 +62,33 @@ const batchSchema: Schema = {
   required: ["scenarios"]
 };
 
+// Advisor Schema
+const adviceSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    analysis: { type: Type.STRING, description: "Concise ethical analysis (2-3 sentences max)." },
+    strategy: { 
+      type: Type.ARRAY, 
+      items: { type: Type.STRING },
+      description: "List of 3-5 distinct, concrete, actionable steps." 
+    },
+    riskAssessment: { type: Type.STRING, description: "Brief assessment of risks if mishandled." },
+    references: { 
+      type: Type.ARRAY, 
+      items: { type: Type.STRING },
+      description: "List of 2-3 specific guidelines (e.g., COPE Flowcharts, ICMJE authorship, GDPR) or principles applicable here." 
+    }
+  },
+  required: ["analysis", "strategy", "riskAssessment", "references"]
+};
+
+export interface AdviceResult {
+  analysis: string;
+  strategy: string[];
+  riskAssessment: string;
+  references: string[];
+}
+
 // Diversity Constraints to avoid repetition
 const PRESSURE_SOURCES = [
   "A demanding supervisor",
@@ -113,7 +140,6 @@ export const generateScenario = async (
   
   const { pressure, dilemma } = getRandomConstraint();
   
-  // Create an exclusion instruction if there are titles to avoid
   const avoidInstruction = avoidTitles.length > 0 
     ? `IMPORTANT: Do NOT generate scenarios with these titles or similar storylines: ${avoidTitles.slice(-15).join(', ')}.`
     : '';
@@ -235,10 +261,88 @@ export const generateScenarioBatch = async (
     throw new Error("Invalid batch response format");
   } catch (error) {
     console.error("Error generating batch:", error);
-    // Return empty object on failure, app will retry individually if needed
     return {};
   }
 };
+
+// --- Advisor Chat Session ---
+
+export class AdvisorSession {
+  private chat: Chat;
+
+  constructor() {
+    this.chat = ai.chats.create({
+      model: MODEL_NAME,
+      config: {
+        temperature: 0.7,
+        systemInstruction: "You are an expert Research Integrity Officer and professional mentor. Your goal is to provide actionable, ethical, and supportive guidance to researchers facing dilemmas."
+      }
+    });
+  }
+
+  async startAnalysis(situation: string, role: string, language: string): Promise<AdviceResult> {
+    const prompt = `
+    User Role: ${role}
+    Language: ${language}
+    Situation: "${situation}"
+
+    Please provide a structured response:
+    1. Analysis: A very brief summary of the ethical core of the issue.
+    2. Strategy: A list of 3-5 distinct, concrete, actionable steps the user should take immediately. Be prescriptive.
+    3. Risk Assessment: A concise warning about what happens if they ignore the issue or handle it poorly.
+    4. References: A list of 2-3 specific guidelines (e.g., COPE Flowcharts, ICMJE authorship, GDPR) or principles applicable here.
+
+    Tone: Supportive but direct and actionable.
+    `;
+
+    try {
+      const response = await this.chat.sendMessage({
+        message: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: adviceSchema
+        }
+      });
+
+      if (response.text) {
+        return JSON.parse(response.text) as AdviceResult;
+      }
+      throw new Error("No advice generated");
+    } catch (error) {
+      console.error("Error generating advice:", error);
+      throw error;
+    }
+  }
+
+  async sendFollowUp(message: string): Promise<string> {
+    try {
+      // Explicitly instruct the model to switch to conversational mode
+      const prompt = `
+        [SYSTEM INSTRUCTION: Switch to CONVERSATIONAL MODE]
+        User's Follow-up: "${message}"
+
+        Guidelines for response:
+        1. Be concise (approx. 3-4 sentences). Do NOT generate a long report.
+        2. Keep a supportive, mentor-like tone.
+        3. Address the specific follow-up question directly.
+        4. Use plain text or simple markdown (e.g., **bold**) for emphasis if needed.
+      `;
+
+      const response = await this.chat.sendMessage({
+        message: prompt,
+        // Ensure no schema restriction for free-text conversation
+        config: {
+           responseMimeType: "text/plain",
+           responseSchema: undefined
+        } 
+      });
+      return response.text || "I couldn't generate a response.";
+    } catch (error) {
+      console.error("Error in follow-up:", error);
+      throw error;
+    }
+  }
+}
 
 const getFallbackScenario = (): Scenario => ({
   title: "Connection Interrupted",

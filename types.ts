@@ -6,7 +6,8 @@ export enum GamePhase {
   LOADING = 'LOADING',
   SCENARIO = 'SCENARIO',
   FEEDBACK = 'FEEDBACK',
-  GAME_OVER = 'GAME_OVER'
+  GAME_OVER = 'GAME_OVER',
+  ADVISOR = 'ADVISOR'
 }
 
 export enum ResearcherRole {
