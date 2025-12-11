@@ -21,11 +21,17 @@ The application leverages **Google Gemini 2.5** to generate infinite, context-aw
 *   **State Management**: React Hooks & LocalStorage (for save/resume functionality)
 *   **Build Tool**: Vite (implied by structure)
 
+## Try the Demo
+
+You can build and test this application directly in **Google AI Studio**.
+
+[**Try in Google AI Studio**](https://aistudio.google.com/)
+
 ## Setup & Installation
 
 1.  **Clone the repository**:
     ```bash
-    git clone https://github.com/your-username/ethix.git
+    git clone https://github.com/Yiru-Jiao/EthiX.git
     cd ethix
     ```
 
