@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Header from './components/Header';
 import Footer from './components/Footer';
@@ -8,7 +9,7 @@ import ScenarioView from './components/ScenarioView';
 import FeedbackView from './components/FeedbackView';
 import WelcomeView from './components/WelcomeView';
 import { GamePhase, ResearcherRole, Scenario, Feedback, ScenarioChoice } from './types';
-import { generateScenario, evaluateDecision } from './services/geminiService';
+import { generateScenario } from './services/geminiService';
 import { ScenarioLibrary } from './services/scenarioLibrary';
 
 const TURNS_PER_ROUND = 5;
@@ -41,12 +42,16 @@ const App: React.FC = () => {
   const [hasSavedGame, setHasSavedGame] = useState(false);
   const [showExitModal, setShowExitModal] = useState(false);
 
-  // Check for saved game on mount
+  // Check for saved game on mount and Initialize Seeds
   useEffect(() => {
+    // Load Save
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       setHasSavedGame(true);
     }
+
+    // Initialize Library Seeds for fast start
+    ScenarioLibrary.ensureSeeds();
   }, []);
 
   const getStatsObject = useCallback(() => ({
@@ -157,17 +162,17 @@ const App: React.FC = () => {
     if (prefetchStartedRef.current === nextTurn) return;
     prefetchStartedRef.current = nextTurn;
     
-    console.log(`[Background] Prefetching scenario for Turn ${nextTurn} (Topic: ${topic})...`);
+    console.log(`[Background] Prefetching scenario for Turn ${nextTurn} (Topic: ${topic}, Lang: ${language})...`);
 
     try {
-      // 1. Generate new content "behind the screen"
+      // 1. Generate new content "behind the screen" (Now includes all potential outcomes!)
       const scenario = await generateScenario(role, nextTurn, language, currentStats, topic, context);
       
       // 2. Save to buffer for immediate use
       setNextScenarioBuffer(scenario);
       
-      // 3. Accumulatively save to Library for future reuse
-      ScenarioLibrary.add(role, topic, scenario);
+      // 3. Accumulatively save to Library for future reuse, ensuring we store with current language
+      ScenarioLibrary.add(role, topic, scenario, language);
       
       console.log(`[Background] Scenario for Turn ${nextTurn} ready in buffer.`);
     } catch (e) {
@@ -196,10 +201,11 @@ const App: React.FC = () => {
 
       // 2. Check Library (Fast - Reuse existing)
       const topic = getTopicForTurn(targetTurn, topics);
-      const cachedScenario = ScenarioLibrary.getRandom(role, topic);
+      // STRICTLY filter by language now
+      const cachedScenario = ScenarioLibrary.getRandom(role, topic, language);
       
       if (cachedScenario) {
-        console.log("[Loader] Using Library Scenario (Cached Load)");
+        console.log(`[Loader] Using Library Scenario (Cached Load - ${language})`);
         setCurrentScenario(cachedScenario);
         
         // Even if we use cached, trigger background gen to add variety to library for future
@@ -216,8 +222,8 @@ const App: React.FC = () => {
       const context = targetTurn > 1 ? currentFeedback?.longTermImplication : undefined;
       const scenario = await generateScenario(role, targetTurn, language, getStatsObject(), topic, context);
       
-      // Save this fresh one to library
-      ScenarioLibrary.add(role, topic, scenario);
+      // Save this fresh one to library with correct language
+      ScenarioLibrary.add(role, topic, scenario, language);
 
       setCurrentScenario(scenario);
       setPhase(GamePhase.SCENARIO);
@@ -249,50 +255,44 @@ const App: React.FC = () => {
 
   const clamp = (val: number) => Math.min(100, Math.max(0, val));
 
-  // Handle User Choice
-  const handleChoice = async (choice: ScenarioChoice) => {
+  // Handle User Choice - INSTANT RESPONSE
+  const handleChoice = (choice: ScenarioChoice) => {
     if (!currentScenario) return;
 
-    setLoading(true);
-    try {
-      const feedback = await evaluateDecision(currentScenario, choice.text, role, language, getStatsObject());
-      
-      const newIntegrity = clamp(integrityScore + (feedback.integrityScoreChange || 0));
-      const newCareer = clamp(careerScore + (feedback.careerScoreChange || 0));
-      const newRigor = clamp(rigorScore + (feedback.rigorScoreChange || 0));
-      const newCollab = clamp(collaborationScore + (feedback.collaborationScoreChange || 0));
-      const newWellbeing = clamp(wellbeingScore + (feedback.wellbeingScoreChange || 0));
+    // 1. Get pre-calculated outcome (Instant, no API call)
+    const feedback = choice.outcome;
+    
+    // 2. Update Stats
+    const newIntegrity = clamp(integrityScore + (feedback.integrityScoreChange || 0));
+    const newCareer = clamp(careerScore + (feedback.careerScoreChange || 0));
+    const newRigor = clamp(rigorScore + (feedback.rigorScoreChange || 0));
+    const newCollab = clamp(collaborationScore + (feedback.collaborationScoreChange || 0));
+    const newWellbeing = clamp(wellbeingScore + (feedback.wellbeingScoreChange || 0));
 
-      setIntegrityScore(newIntegrity);
-      setCareerScore(newCareer);
-      setRigorScore(newRigor);
-      setCollaborationScore(newCollab);
-      setWellbeingScore(newWellbeing);
-      
-      setCurrentFeedback(feedback);
-      setPhase(GamePhase.FEEDBACK);
+    setIntegrityScore(newIntegrity);
+    setCareerScore(newCareer);
+    setRigorScore(newRigor);
+    setCollaborationScore(newCollab);
+    setWellbeingScore(newWellbeing);
+    
+    // 3. Show Feedback
+    setCurrentFeedback(feedback);
+    setPhase(GamePhase.FEEDBACK);
 
-      // --- CRITICAL OPTIMIZATION: START PREFETCHING NEXT TURN HERE ---
-      // We know the new stats. We know the next turn. 
-      // Start generating 'behind the screen' while user reads feedback.
-      const nextTurn = turn + 1;
-      const predictedStats = {
-        integrity: newIntegrity,
-        career: newCareer,
-        rigor: newRigor,
-        collaboration: newCollab,
-        wellbeing: newWellbeing
-      };
-      
-      // Only prefetch if we haven't hit the round limit
-      if (nextTurn % TURNS_PER_ROUND !== 1) { 
-         triggerBackgroundGeneration(nextTurn, predictedStats, feedback.longTermImplication);
-      }
-
-    } catch (e) {
-      setError("Failed to evaluate decision.");
-    } finally {
-      setLoading(false);
+    // 4. Trigger Background Generation for NEXT Turn
+    const nextTurn = turn + 1;
+    const predictedStats = {
+      integrity: newIntegrity,
+      career: newCareer,
+      rigor: newRigor,
+      collaboration: newCollab,
+      wellbeing: newWellbeing
+    };
+    
+    // Only prefetch if we haven't hit the round limit
+    if (nextTurn % TURNS_PER_ROUND !== 1) { 
+        // Pass the long term implication as context for the next turn
+        triggerBackgroundGeneration(nextTurn, predictedStats, feedback.longTermImplication);
     }
   };
 
@@ -362,7 +362,7 @@ const App: React.FC = () => {
           <div className="flex flex-col items-center justify-center flex-grow h-96">
             <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-indigo-600 mb-4"></div>
             <p className="text-lg font-medium text-slate-600">
-               {nextScenarioBuffer ? "Finalizing simulation..." : "Creating unique scenario..."}
+               {nextScenarioBuffer ? "Finalizing simulation..." : "Preparing unique scenario..."}
             </p>
           </div>
         )}

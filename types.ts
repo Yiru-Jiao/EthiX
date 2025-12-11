@@ -18,19 +18,6 @@ export enum ResearcherRole {
   EDITOR_CHAIR = 'Journal Editor / Conference Chair'
 }
 
-export interface ScenarioChoice {
-  id: string;
-  text: string;
-}
-
-export interface Scenario {
-  title: string;
-  description: string;
-  context: string; // The "open science" context or background
-  choices: ScenarioChoice[];
-  navigatorSpeaking: string; // Dynamic tip in selected language (formerly mentorSpeaking)
-}
-
 export interface Feedback {
   outcomeTitle: string;
   outcomeDescription: string;
@@ -44,7 +31,21 @@ export interface Feedback {
   longTermImplication: string;
   actionableStrategy: string; // What should have been done or what to do next
   openSciencePrinciple: string; // Connection to open science
-  navigatorSpeaking: string; // Dynamic reaction in selected language (formerly mentorSpeaking)
+  navigatorSpeaking: string; // Dynamic reaction in selected language
+}
+
+export interface ScenarioChoice {
+  id: string;
+  text: string;
+  outcome: Feedback; // Pre-calculated outcome for this choice
+}
+
+export interface Scenario {
+  title: string;
+  description: string;
+  context: string; // The "open science" context or background
+  choices: ScenarioChoice[];
+  navigatorSpeaking: string; // Dynamic tip in selected language
 }
 
 export interface GameState {

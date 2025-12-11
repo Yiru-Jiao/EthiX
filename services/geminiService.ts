@@ -1,55 +1,53 @@
+
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { ResearcherRole, Scenario, Feedback } from "../types";
+import { ResearcherRole, Scenario } from "../types";
 
 // Initialize Gemini
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 const MODEL_NAME = 'gemini-2.5-flash';
 
+// Unified Schema: Scenario + Outcomes for choices
 const scenarioSchema: Schema = {
   type: Type.OBJECT,
   properties: {
     title: { type: Type.STRING, description: "A short, catchy title for the ethical dilemma." },
     description: { type: Type.STRING, description: "The detailed narrative of the situation. It must be subtle, not obvious misconduct." },
-    context: { type: Type.STRING, description: "Brief context about the specific research environment or pressure. Be creative (e.g., 'Late night in the lab', 'Conference in Madrid', 'Zoom call with funders')." },
-    navigatorSpeaking: { type: Type.STRING, description: "A brief, 1-sentence tip from a neutral navigator/guide in the target language. If turn=1, explain the radar chart tracks balance. If stats are low, warn them." },
+    context: { type: Type.STRING, description: "Brief context regarding the specific research environment or pressure." },
+    navigatorSpeaking: { type: Type.STRING, description: "A brief, 1-sentence tip from a neutral navigator/guide in the target language. Warn if stats are low." },
     choices: {
       type: Type.ARRAY,
       items: {
         type: Type.OBJECT,
         properties: {
           id: { type: Type.STRING },
-          text: { type: Type.STRING, description: "The action the user can take." }
+          text: { type: Type.STRING, description: "The action the user can take." },
+          outcome: {
+            type: Type.OBJECT,
+            properties: {
+              outcomeTitle: { type: Type.STRING, description: "Short title of what happened." },
+              outcomeDescription: { type: Type.STRING, description: "Narrative description of the immediate result." },
+              integrityScoreChange: { type: Type.INTEGER, description: "Impact on Research Integrity (-10 to +10)." },
+              careerScoreChange: { type: Type.INTEGER, description: "Impact on Career Standing (-10 to +10)." },
+              rigorScoreChange: { type: Type.INTEGER, description: "Impact on Scientific Rigor/Quality (-10 to +10)." },
+              collaborationScoreChange: { type: Type.INTEGER, description: "Impact on Collaboration/Trust (-10 to +10)." },
+              wellbeingScoreChange: { type: Type.INTEGER, description: "Impact on Wellbeing/Mental Health (-10 to +10)." },
+              longTermImplication: { type: Type.STRING, description: "Potential future consequences (positive or negative)." },
+              actionableStrategy: { type: Type.STRING, description: "Advice on how to handle this situation professionally." },
+              openSciencePrinciple: { type: Type.STRING, description: "Which Open Science principle is relevant here." },
+              navigatorSpeaking: { type: Type.STRING, description: "A brief, 1-sentence reaction from the navigator about the result." }
+            },
+            required: [
+              "outcomeTitle", "outcomeDescription", 
+              "integrityScoreChange", "careerScoreChange", "rigorScoreChange", "collaborationScoreChange", "wellbeingScoreChange",
+              "longTermImplication", "actionableStrategy", "openSciencePrinciple", "navigatorSpeaking"
+            ]
+          }
         },
-        required: ["id", "text"]
+        required: ["id", "text", "outcome"]
       }
     }
   },
   required: ["title", "description", "context", "choices", "navigatorSpeaking"]
-};
-
-const feedbackSchema: Schema = {
-  type: Type.OBJECT,
-  properties: {
-    outcomeTitle: { type: Type.STRING, description: "Short title of what happened." },
-    outcomeDescription: { type: Type.STRING, description: "Narrative description of the immediate result." },
-    
-    // Score changes
-    integrityScoreChange: { type: Type.INTEGER, description: "Impact on Research Integrity (-10 to +10)." },
-    careerScoreChange: { type: Type.INTEGER, description: "Impact on Career Standing (-10 to +10)." },
-    rigorScoreChange: { type: Type.INTEGER, description: "Impact on Scientific Rigor/Quality (-10 to +10). Does the science suffer?" },
-    collaborationScoreChange: { type: Type.INTEGER, description: "Impact on Collaboration/Trust (-10 to +10). Do peers trust you?" },
-    wellbeingScoreChange: { type: Type.INTEGER, description: "Impact on Wellbeing/Mental Health (-10 to +10). Is it stressful?" },
-
-    longTermImplication: { type: Type.STRING, description: "Potential future consequences (positive or negative)." },
-    actionableStrategy: { type: Type.STRING, description: "Advice on how to handle this situation professionally." },
-    openSciencePrinciple: { type: Type.STRING, description: "Which Open Science principle is relevant here (e.g. Transparency, Reproducibility)." },
-    navigatorSpeaking: { type: Type.STRING, description: "A brief, 1-sentence reaction from the navigator in the target language about the new balance of the researcher." }
-  },
-  required: [
-    "outcomeTitle", "outcomeDescription", 
-    "integrityScoreChange", "careerScoreChange", "rigorScoreChange", "collaborationScoreChange", "wellbeingScoreChange",
-    "longTermImplication", "actionableStrategy", "openSciencePrinciple", "navigatorSpeaking"
-  ]
 };
 
 // Diversity Constraints to avoid repetition
@@ -98,8 +96,7 @@ export const generateScenario = async (
       default: specificGuidance = "Focus on a subtle ethical dilemma in general research integrity.";
   }
 
-  // 2. Randomize Constraints for Diversity
-  // We use Math.random() here to ensure each playthrough feels distinct even with same settings
+  // Randomize Constraints for Diversity
   const pressure = PRESSURE_SOURCES[Math.floor(Math.random() * PRESSURE_SOURCES.length)];
   const dilemma = DILEMMA_TYPES[Math.floor(Math.random() * DILEMMA_TYPES.length)];
 
@@ -109,29 +106,36 @@ export const generateScenario = async (
     Language: ${language}.
     Current Stats: ${JSON.stringify(currentStats)}.
     
-    CRITICAL INSTRUCTION: To ensure a diverse and engaging experience, strictly follow these constraints for this specific turn:
+    CRITICAL INSTRUCTION: 
     1. Primary Focus Topic: ${topicId}
     2. Source of External Pressure: ${pressure}
     3. Type of Ethical Dilemma: ${dilemma}
     
     Specific Topic Guidance: ${specificGuidance}
 
-    IMPORTANT: Provide ALL content (including 'navigatorSpeaking') in ${language}.
+    IMPORTANT: Provide ALL content (including 'navigatorSpeaking' and 'outcome' details) in ${language}.
 
     The scenario should focus on "grey areas" and subtle pressures in academia.
-    Do not make it obvious fraud. Make it a difficult social or professional pressure situation.
     
-    For 'navigatorSpeaking':
+    For 'navigatorSpeaking' (Scenario Level):
     - If Turn 1: Briefly explain that the chart shows their professional balance.
     - If any stat < 40: Give a critical warning about that specific risk.
     - Otherwise: Give a general tip about trade-offs related to the current scenario topic.
 
-    Provide 3 distinct choices:
+    Provide 3 distinct choices. For EACH choice, you MUST pre-calculate the outcome in the 'outcome' object:
     1. The "Easy/Passive" path (often leads to lower integrity but might save time/stress).
     2. The "Aggressive/Self-serving" path (might boost career short term but hurts collaboration/rigor).
     3. The "Strategic/Ethical" path (balanced, open science approach, might be harder or slower).
     
-    ${previousContext ? `Previous context/outcome to build upon (but pivot to the new constraints): ${previousContext}` : ''}
+    Evaluate the outcomes for each choice based on:
+    - Integrity (Ethical conduct)
+    - Career (Prestige, funding)
+    - Rigor (Quality, reproducibility)
+    - Collaboration (Trust, team)
+    - Wellbeing (Mental health, stress)
+    Assign score changes (-10 to +10) for EACH dimension in the outcome.
+
+    ${previousContext ? `Previous context/outcome to build upon: ${previousContext}` : ''}
   `;
 
   try {
@@ -141,7 +145,7 @@ export const generateScenario = async (
       config: {
         responseMimeType: "application/json",
         responseSchema: scenarioSchema,
-        temperature: 0.85 // Increased temperature for more creativity
+        temperature: 0.85 
       }
     });
 
@@ -154,74 +158,21 @@ export const generateScenario = async (
     // Fallback scenario in case of API failure
     return {
       title: "Connection Error",
-      description: "We couldn't reach the AI simulation engine. Please check your connection or API key.",
+      description: "We couldn't reach the AI simulation engine. Please check your connection.",
       context: "System Error",
-      choices: [{ id: "retry", text: "Retry Connection" }],
+      choices: [
+        { 
+          id: "retry", 
+          text: "Retry Connection",
+          outcome: {
+            outcomeTitle: "System Offline",
+            outcomeDescription: "Please check your internet connection and try again.",
+            integrityScoreChange: 0, careerScoreChange: 0, rigorScoreChange: 0, collaborationScoreChange: 0, wellbeingScoreChange: 0,
+            longTermImplication: "None", actionableStrategy: "Refresh the page.", openSciencePrinciple: "N/A", navigatorSpeaking: "System offline."
+          }
+        }
+      ],
       navigatorSpeaking: "System is offline."
-    };
-  }
-};
-
-export const evaluateDecision = async (
-  scenario: Scenario, 
-  choiceText: string, 
-  role: ResearcherRole,
-  language: string,
-  currentStats: any
-): Promise<Feedback> => {
-  const prompt = `
-    Role: ${role}
-    Scenario: ${scenario.description}
-    User Choice: ${choiceText}
-    Language: ${language}
-    Stats BEFORE choice: ${JSON.stringify(currentStats)}
-
-    IMPORTANT: Provide the evaluation content fully in ${language}.
-    
-    Evaluate this choice based on 5 dimensions of academic life:
-    1. Research Integrity (Ethical conduct)
-    2. Career Standing (Prestige, funding, power)
-    3. Scientific Rigor (Methodological quality, reproducibility)
-    4. Collaboration (Trust, networking, team morale)
-    5. Wellbeing (Stress, burnout, work-life balance)
-
-    Assign score changes (-10 to +10) for EACH dimension.
-    
-    For 'navigatorSpeaking':
-    - Provide a short, direct reaction to how this choice affects their stats/balance.
-    
-    Provide a specific actionable strategy (e.g. "Use reference management software", "Always quote verbatim text").
-  `;
-
-  try {
-    const response = await ai.models.generateContent({
-      model: MODEL_NAME,
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: feedbackSchema,
-        temperature: 0.7
-      }
-    });
-
-    if (response.text) {
-      return JSON.parse(response.text) as Feedback;
-    }
-    throw new Error("No text response from Gemini");
-  } catch (error) {
-    console.error("Error evaluating decision:", error);
-    return {
-      outcomeTitle: "Evaluation Error",
-      outcomeDescription: "Could not evaluate choice.",
-      integrityScoreChange: 0,
-      careerScoreChange: 0,
-      rigorScoreChange: 0,
-      collaborationScoreChange: 0,
-      wellbeingScoreChange: 0,
-      longTermImplication: "Unknown",
-      actionableStrategy: "Check connection.",
-      openSciencePrinciple: "N/A",
-      navigatorSpeaking: "Error evaluating."
     };
   }
 };
