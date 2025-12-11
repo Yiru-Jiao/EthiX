@@ -14,20 +14,14 @@ The application leverages **Google Gemini 2.5** to generate infinite, context-aw
 *   **Multi-Round Gameplay**: Survival-style gameplay where choices accumulate consequences over time.
 *   **Multilingual Support**: Fully localized content generation based on user preference.
 
-## Tech Stack
-
-*   **Frontend**: React 19, TypeScript, Tailwind CSS
-*   **AI Integration**: Google GenAI SDK (`@google/genai`) with Gemini 2.5 Flash
-*   **State Management**: React Hooks & LocalStorage (for save/resume functionality)
-*   **Build Tool**: Vite (implied by structure)
 
 ## Try the Demo
 
-You can build and test this application directly in **Google AI Studio**.
+You can test this application directly in **Google AI Studio** via [this link](https://aistudio.google.com/app/prompts?state=%7B%22ids%22:%5B%2217n_DSSXmOfSe4euuEQRfV1nnBEMlquMy%22%5D,%22action%22:%22open%22,%22userId%22:%22104881785806373648881%22,%22resourceKeys%22:%7B%7D%7D&usp=sharing).
 
-[**Try in Google AI Studio**](https://aistudio.google.com/)
+If interested, you can also copy the app and develop further based on it.
 
-## Setup & Installation
+## Local Installation and Setup
 
 1.  **Clone the repository**:
     ```bash
